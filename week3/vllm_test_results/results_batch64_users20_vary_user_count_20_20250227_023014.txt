@@ -1,0 +1,26 @@
+vLLM Load Test Results - 2025-02-27 02:32:14.369077
+Model: google/gemma-1.1-2b-it
+Batch Size: 64
+Users: 20
+Test Phase: vary_user_count_20
+Prompt Type: mixed
+================================================================================
+
+TEST RESULTS
+========================================
+
+Test Duration: 2.0 minutes
+Total Requests: 292
+Total Tokens Generated: 53943
+
+PERFORMANCE METRICS
+========================================
+
+QPS: 2.45 requests/second
+Max QPS (10s window): 3.20 requests/second
+Avg TTFT: 497.6ms
+P95 TTFT: 583.1ms
+Avg TPOT: 31.88 tokens/second
+Avg Latency: 6377.2ms
+P95 Latency: 10048.8ms
+P99 Latency: 13076.6ms
