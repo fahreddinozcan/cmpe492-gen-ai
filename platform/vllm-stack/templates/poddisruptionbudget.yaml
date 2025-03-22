@@ -4,4 +4,4 @@ metadata:
   name: "{{ .Release.Name }}-pdb"
   namespace: {{ .Release.Namespace }}
 spec:
-  maxUnavailable: {{ default 1 .Values.maxUnavailablePodDisruptionBudget }}
+  maxUnavailable: {{ default 1 .Values.servingEngineSpec.maxUnavailablePodDisruptionBudget }}
