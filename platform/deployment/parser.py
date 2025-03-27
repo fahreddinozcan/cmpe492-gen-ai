@@ -69,10 +69,10 @@ def _add_deploy_args(parser):
         "-c", "--gpu-count", default=1, type=int, help="Number of GPUs (default: 1)"
     )
     parser.add_argument(
-        "-C", "--cpu-count", default=4, type=int, help="Number of CPUs (default: 4)"
+        "-C", "--cpu-count", default=2, type=int, help="Number of CPUs (default: 2)"
     )
     parser.add_argument(
-        "-M", "--memory", default="16Gi", help="Memory size (default: 16Gi)"
+        "-M", "--memory", default="8Gi", help="Memory size (default: 8Gi)"
     )
     parser.add_argument(
         "-s", "--storage", default="10Gi", help="PVC storage size (default: 10Gi)"
@@ -133,7 +133,7 @@ def _add_deploy_args(parser):
     # Chart path
     parser.add_argument(
         "--chart-path",
-        default="./vllm-chart",
+        default="./vllm-stack",
         help="Path to vLLM Helm chart (default: ./vllm-chart)",
     )
 

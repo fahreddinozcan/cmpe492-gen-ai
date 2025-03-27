@@ -182,13 +182,14 @@ servingEngineSpec:
   tolerations: []
 
   # -- RuntimeClassName configuration, set to "nvidia" if the model requires GPU
-  runtimeClassName: "nvidia"
+  # runtimeClassName: "nvidia"
 
   # -- SchedulerName configuration
   schedulerName: ""
 
   # -- Pod-level security context configuration. https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#podsecuritycontext-v1-core
-  securityContext: {}
+  securityContext:
+    {}
     # -- Run as a non-root user ID
     # runAsUser: 1000
     # -- Run with a non-root group ID
@@ -264,11 +265,11 @@ routerSpec:
   # -- router resource requests and limits
   resources:
     requests:
+      cpu: "2"
+      memory: "8G"
+    limits:
       cpu: "4"
       memory: "16G"
-    limits:
-      cpu: "8"
-      memory: "32G"
 
   # -- Customized labels for the router deployment
   labels:

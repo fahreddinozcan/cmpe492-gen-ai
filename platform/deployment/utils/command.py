@@ -82,14 +82,16 @@ def run_command(command, check=True, stream_output=False):
             result = subprocess.run(
                 command, shell=True, check=check, text=True, capture_output=True
             )
-
+            # Print both stdout and stderr for debugging
             if result.stdout:
-                logger.info(f"Command output:\n{result.stdout}")
-
+                logger.info("STDOUT:", result.stdout)
+            if result.stderr:
+                logger.info("STDERR:", result.stderr)
             return result
+
         except subprocess.CalledProcessError as e:
-            logger.error(f"Command failed: {e}")
-            logger.error(f"Error output: {e.stderr}")
-            if check:
-                raise
-            return e
+            if e.stdout:
+                logger.info("STDOUT:", e.stdout)
+            if e.stderr:
+                logger.info("STDERR:", e.stderr)
+            raise

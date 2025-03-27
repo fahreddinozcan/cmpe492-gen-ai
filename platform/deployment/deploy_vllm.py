@@ -1,9 +1,10 @@
 import os
 import logging
 import json
-import sys
 from utils.command import run_command
-from generate_values import generate_values
+
+# from generate_values import generate_values
+from .generate_values import generate_values
 
 logger = logging.getLogger("vllm-deploy")
 
@@ -62,7 +63,7 @@ def deploy_vllm(args):
 
     logger.info(f"Deplying vLLM with helm")
 
-    result = run_command(helm_cmd, stream_output=False)
+    result = run_command(helm_cmd)
     os.unlink(values_file)
 
     logger.info(
@@ -71,16 +72,15 @@ def deploy_vllm(args):
 
     logger.info(f"To test the deployment:")
     logger.info(
-        f"  kubectl port-forward -n {args.namespace} svc/{args.release_name} 8000:80"
+        f"  kubectl port-forward -n {args.namespace} svc/{args.release_name}-router-service 8000:80"
     )
     logger.info(
         f'  curl http://localhost:8000/v1/completions -H "Content-Type: application/json" -d \'{{\n'
     )
-    model_name = (
-        args.model_name if args.model_name else os.path.basename(args.model_path)
-    )
+
+    model_path = args.model_path
     logger.info(
-        f'    "model": "{model_name}",\n    "prompt": "Write a poem about AI",\n    "max_tokens": 100\n  }}\''
+        f'    "model": "{model_path}",\n    "prompt": "Write a poem about AI",\n    "max_tokens": 100\n  }}\''
     )
 
     return True

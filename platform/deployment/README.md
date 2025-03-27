@@ -15,7 +15,7 @@ python main.py deploy \
   --model-path=google/gemma-1.1-2b-it \
   --release-name=vllm-gemma \
   --namespace=vllm \
-  --hf-token=YOUR_HUGGING_FACE_TOKEN \
+  --hf-token="omit" \
   --debug
 ```
 
@@ -26,12 +26,10 @@ python main.py deploy \
   --model-path=google/gemma-1.1-2b-it \
   --release-name=vllm-gemma \
   --namespace=vllm \
-  --gpu-count=1 \
-  --cpu-count=6 \
-  --memory=24Gi \
-  --storage=20Gi \
-  --hf-token=YOUR_HUGGING_FACE_TOKEN \
-  --stream-output
+  --hf-token="omit" \
+  --debug \
+  --helm-args="--debug --timeout 10m"
+
 ```
 
 ### Listing Deployments
