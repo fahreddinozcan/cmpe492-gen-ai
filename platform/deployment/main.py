@@ -32,10 +32,9 @@ def check_prerequisites():
 
 def main():
     """Main function"""
-    # Parse command line arguments
+
     args = parse_args()
 
-    # Set log level based on debug flag
     if args.debug:
         logging.getLogger().setLevel(logging.DEBUG)
         logger.setLevel(logging.DEBUG)
@@ -53,7 +52,6 @@ def main():
             logger.error("No command specified and no model path provided")
             sys.exit(1)
 
-    # Execute the corresponding command
     success = False
     if args.command == "deploy":
         logger.info(
