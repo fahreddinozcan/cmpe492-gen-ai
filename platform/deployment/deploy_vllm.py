@@ -97,13 +97,13 @@ def delete_deployment(args):
         bool: True if deletion succeeded, False otherwise
     """
     try:
-        purge_flag = "--purge" if args.purge else ""
-        helm_cmd = f"helm uninstall {args.release_name} --namespace={args.namespace} {purge_flag}"
+        # Note: --purge flag is not needed in Helm 3+, it's the default behavior
+        helm_cmd = f"helm uninstall {args.release_name} --namespace={args.namespace}"
 
         logger.info(
             f"Deleting vLLM deployment {args.release_name} in namespace {args.namespace}..."
         )
-        result = run_command(helm_cmd, stream_output=args.stream_output)
+        result = run_command(helm_cmd)
 
         logger.info(f"Deployment {args.release_name} deleted successfully")
         return True

@@ -40,6 +40,13 @@ app.add_middleware(
 )
 
 
+@app.on_event("startup")
+async def startup_event():
+    """Initialize the application on startup"""
+    logger.info("Initializing deployments...")
+    await initialize_deployments()
+
+
 class DeploymentRequest(BaseModel):
     model_path: str = Field(..., description="Model path or Hugging Face model ID")
     release_name: str = Field(..., description="Name for the deployment")
@@ -81,21 +88,19 @@ class DeploymentResponse(BaseModel):
     deployment_id: Optional[str] = None
 
 
-class DeploymentResponse(BaseModel):
-    success: bool
-    message: str
-    service_url: Optional[str] = None
-
-
-class DeploymentStatus(BaseModel):
+class DeploymentListItem(BaseModel):
+    deployment_id: str
     name: str
     namespace: str
     status: str
     model: str
     created_at: str
+    ready: bool = False
+    health_status: str = "unknown"
 
 
 class DeploymentStatus(BaseModel):
+    deployment_id: str
     name: str
     namespace: str
     status: str
@@ -107,7 +112,11 @@ class DeploymentStatus(BaseModel):
     memory: str
     image: str
     service_url: str
-    pod_status: Dict[str, str] = {}
+    ready: bool = False
+    health_status: str = (
+        "unknown"  # Can be "healthy", "unhealthy", "starting", "unknown"
+    )
+    # pod_status is removed as we don't want to expose pod details to the UI
 
 
 class DeploymentLog(BaseModel):
@@ -118,6 +127,82 @@ class DeploymentLog(BaseModel):
 
 
 active_deployments = {}
+
+
+async def initialize_deployments():
+    """Initialize the active_deployments dictionary with existing deployments"""
+    try:
+        # Get all namespaces
+        ns_cmd = "kubectl get namespaces -o jsonpath='{.items[*].metadata.name}'"
+        ns_result = await asyncio.to_thread(
+            lambda: subprocess.run(ns_cmd, shell=True, text=True, capture_output=True)
+        )
+
+        if ns_result.returncode == 0 and ns_result.stdout:
+            namespaces = ns_result.stdout.split()
+
+            # For each namespace, get the deployments
+            for namespace in namespaces:
+                helm_cmd = f"helm list -n {namespace} -o json"
+                helm_result = await asyncio.to_thread(
+                    lambda: subprocess.run(
+                        helm_cmd, shell=True, text=True, capture_output=True
+                    )
+                )
+
+                if helm_result.returncode == 0 and helm_result.stdout:
+                    try:
+                        helm_releases = json.loads(helm_result.stdout)
+
+                        for release in helm_releases:
+                            release_name = release.get("name")
+                            release_namespace = release.get("namespace", namespace)
+
+                            # Check if it's a vLLM deployment
+                            if release_name and (
+                                "vllm" in release.get("chart", "").lower()
+                                or "llm" in release_name.lower()
+                            ):
+                                # Generate a deterministic deployment ID based on namespace and release name
+                                # This ensures the same deployment gets the same ID across server restarts
+                                unique_key = f"{release_namespace}:{release_name}"
+                                deployment_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, unique_key))
+
+                                # Get enhanced status
+                                status = await get_enhanced_deployment_status(
+                                    release_namespace, release_name
+                                )
+
+                                # Add to active_deployments
+                                active_deployments[deployment_id] = {
+                                    "release_name": release_name,
+                                    "namespace": release_namespace,
+                                    "status": status.get("status", "unknown"),
+                                    "model_path": status.get("model", "unknown"),
+                                    "created_at": release.get(
+                                        "updated", datetime.now().isoformat()
+                                    ),
+                                    "llm_ready": status.get("llm_ready", False),
+                                    "llm_status": status.get("llm_status", "unknown"),
+                                    "gpu_count": status.get("gpu_count", 1),
+                                    "cpu_count": status.get("cpu_count", 2),
+                                    "memory": status.get("memory", "8Gi"),
+                                    "image": status.get(
+                                        "image", "vllm/vllm-openai:latest"
+                                    ),
+                                }
+
+                                logger.info(
+                                    f"Initialized deployment {release_name} in namespace {release_namespace} with ID {deployment_id}"
+                                )
+                    except json.JSONDecodeError as e:
+                        logger.error(
+                            f"Error parsing Helm JSON in namespace {namespace}: {str(e)}"
+                        )
+
+        logger.info(f"Initialized {len(active_deployments)} deployments")
+    except Exception as e:
+        logger.error(f"Error initializing deployments: {str(e)}")
 
 
 class ConnectionManager:
@@ -167,7 +252,8 @@ class ConnectionManager:
 
     async def stream_logs(self, deployment_id: str, namespace: str, release_name: str):
         try:
-            pod_cmd = f"kubectl get pods -n {namespace} -l app={release_name} -o jsonpath='{{.items[*].metadata.name}}'"
+            # Get all pods in the namespace
+            pod_cmd = f"kubectl get pods -n {namespace} -o json"
             result = await asyncio.to_thread(
                 lambda: subprocess.run(
                     pod_cmd, shell=True, text=True, capture_output=True
@@ -181,7 +267,24 @@ class ConnectionManager:
                 )
                 return
 
-            pod_names = result.stdout.split()
+            # Parse the JSON and filter for pods that belong to this deployment
+            pod_names = []
+            try:
+                pods_data = json.loads(result.stdout)
+                for pod in pods_data.get("items", []):
+                    pod_name = pod["metadata"]["name"]
+                    # Filter for pods that belong to this deployment
+                    if release_name in pod_name:
+                        pod_names.append(pod_name)
+                        logger.info(f"Found pod for streaming logs from deployment {release_name}: {pod_name}")
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse pods JSON: {str(e)}")
+                await self.send_message(
+                    json.dumps({"error": f"Failed to parse pods data: {str(e)}"}),
+                    deployment_id,
+                )
+                return
+            
             if not pod_names:
                 await self.send_message(
                     json.dumps({"error": "No pods found"}), deployment_id
@@ -253,8 +356,11 @@ async def create_deployment(
     try:
         logger.info(f"Creating deployment for model {request.model_path}")
 
-        deployment_id = str(uuid.uuid4())
-        print(f"Deployment ID: {deployment_id}")
+        # Generate a deterministic deployment ID based on namespace and release name
+        # This ensures the same deployment gets the same ID across server restarts
+        unique_key = f"{request.namespace}:{request.release_name}"
+        deployment_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, unique_key))
+        logger.info(f"Deployment ID: {deployment_id}")
 
         args = Namespace(
             model_path=request.model_path,
@@ -532,6 +638,58 @@ async def get_enhanced_deployment_status(
     deployment_status["llm_status"] = "Initializing"
     deployment_status["ui_status"] = "pending"  # Options: active, pending, failed
 
+    # Check if all pods are running and ready
+    # First, get all pods for this deployment
+    pods_cmd = f"kubectl get pods -n {namespace} -o json"
+    pods_result = await asyncio.to_thread(
+        lambda: subprocess.run(pods_cmd, shell=True, text=True, capture_output=True)
+    )
+
+    all_pods_ready = False
+    if pods_result.returncode == 0 and pods_result.stdout:
+        try:
+            pods_data = json.loads(pods_result.stdout)
+            deployment_pods = []
+
+            # Find pods that belong to this deployment
+            for pod in pods_data.get("items", []):
+                pod_name = pod["metadata"]["name"]
+                if release_name in pod_name:
+                    deployment_pods.append(pod)
+
+            # Check if all pods are running and ready
+            if deployment_pods:
+                all_running = True
+                all_ready = True
+
+                for pod in deployment_pods:
+                    # Check if running
+                    if pod["status"]["phase"] != "Running":
+                        all_running = False
+                        break
+
+                    # Check if ready
+                    if "containerStatuses" in pod["status"]:
+                        for container in pod["status"]["containerStatuses"]:
+                            if not container.get("ready", False):
+                                all_ready = False
+                                break
+                    else:
+                        all_ready = False
+
+                if all_running and all_ready:
+                    all_pods_ready = True
+                    logger.info(f"All pods for {release_name} are running and ready")
+        except Exception as e:
+            logger.error(f"Error checking pod readiness: {str(e)}")
+
+    # If all pods are ready, we can assume the LLM is ready
+    if all_pods_ready:
+        deployment_status["llm_ready"] = True
+        deployment_status["llm_status"] = "Ready"
+        deployment_status["ui_status"] = "active"
+        return deployment_status
+
     # If deployment is not running, we already know LLM is not ready
     if deployment_status["status"] != "Running":
         if (
@@ -550,8 +708,42 @@ async def get_enhanced_deployment_status(
 
     try:
         # Try to query the model health endpoint
-        # Kubernetes service connectivity check
-        cmd = f"kubectl exec -n {namespace} deploy/{release_name}-deployment-router -- curl -s http://localhost:8000/v1/models"
+        # First find all pods for this release
+        find_pods_cmd = f"kubectl get pods -n {namespace} -l app.kubernetes.io/instance={release_name} -o json"
+        if not find_pods_cmd:
+            # Try alternative label selectors
+            find_pods_cmd = f"kubectl get pods -n {namespace} -o json"
+
+        pods_result = await asyncio.to_thread(
+            lambda: subprocess.run(
+                find_pods_cmd, shell=True, text=True, capture_output=True
+            )
+        )
+
+        router_pod = None
+        if pods_result.returncode == 0 and pods_result.stdout:
+            try:
+                pods_data = json.loads(pods_result.stdout)
+                for pod in pods_data.get("items", []):
+                    pod_name = pod["metadata"]["name"]
+                    # Look for router pods by common naming patterns
+                    if (
+                        "router" in pod_name.lower()
+                        and pod["status"]["phase"] == "Running"
+                    ):
+                        router_pod = pod_name
+                        break
+            except json.JSONDecodeError:
+                logger.error("Failed to parse pods JSON")
+
+        if router_pod:
+            # Use the found router pod
+            cmd = f"kubectl exec -n {namespace} {router_pod} -- curl -s http://localhost:8000/v1/models"
+            logger.info(f"Using router pod {router_pod} for health check")
+        else:
+            # Fallback to deployment name if no pod found
+            cmd = f"kubectl exec -n {namespace} deploy/{release_name}-deployment-router -- curl -s http://localhost:8000/v1/models"
+            logger.info(f"Falling back to deployment name for health check")
         health_result = await asyncio.to_thread(
             lambda: subprocess.run(
                 cmd, shell=True, text=True, capture_output=True, timeout=5
@@ -580,7 +772,42 @@ async def get_enhanced_deployment_status(
         else:
             # Couldn't connect to the service
             # Check logs to see if model is still loading
-            logs_cmd = f"kubectl logs -n {namespace} -l app={release_name}-gemma-1.1-2b-it-deployment-vllm --tail=50"
+            # First try to find all pods for this release
+            find_pods_cmd = f"kubectl get pods -n {namespace} -o json"
+            find_pod_result = await asyncio.to_thread(
+                lambda: subprocess.run(
+                    find_pods_cmd, shell=True, text=True, capture_output=True
+                )
+            )
+
+            model_pod = None
+            if find_pod_result.returncode == 0 and find_pod_result.stdout:
+                try:
+                    pods_data = json.loads(find_pod_result.stdout)
+                    for pod in pods_data.get("items", []):
+                        pod_name = pod["metadata"]["name"]
+                        # Look for model pods by common naming patterns
+                        if (
+                            release_name in pod_name
+                            and (
+                                "vllm" in pod_name.lower()
+                                or "engine" in pod_name.lower()
+                            )
+                            and not "router" in pod_name.lower()
+                        ):
+                            model_pod = pod_name
+                            break
+                except json.JSONDecodeError:
+                    logger.error("Failed to parse pods JSON")
+
+            if model_pod:
+                # Use the found model pod
+                logs_cmd = f"kubectl logs -n {namespace} {model_pod} --tail=50"
+                logger.info(f"Checking logs from model pod {model_pod}")
+            else:
+                # Fallback to a more generic approach - try to find any pod with the release name
+                logs_cmd = f"kubectl logs -n {namespace} -l app.kubernetes.io/instance={release_name} --tail=50"
+                logger.info(f"Falling back to generic log check for {release_name}")
             logs_result = await asyncio.to_thread(
                 lambda: subprocess.run(
                     logs_cmd, shell=True, text=True, capture_output=True
@@ -606,11 +833,32 @@ async def get_enhanced_deployment_status(
     return deployment_status
 
 
-@app.get("/deployments/", response_model=List[DeploymentStatus])
+@app.get("/deployments/", response_model=List[DeploymentListItem])
 async def list_deployments_endpoint(
     namespace: Optional[str] = Query(None, description="Filter by namespace")
 ):
+    """List all LLM deployments with basic information"""
     try:
+        # Get deployments from active_deployments first
+        deployments = []
+        for deployment_id, deployment in active_deployments.items():
+            if namespace and deployment.get("namespace") != namespace:
+                continue
+
+            # Create a deployment list item with only the necessary information for the UI
+            deployment_item = DeploymentListItem(
+                deployment_id=deployment_id,
+                name=deployment.get("release_name"),
+                namespace=deployment.get("namespace"),
+                status=deployment.get("status", "unknown"),
+                model=deployment.get("model_path", "unknown"),
+                created_at=deployment.get("created_at", datetime.now().isoformat()),
+                ready=deployment.get("llm_ready", False),
+                health_status=deployment.get("llm_status", "unknown"),
+            )
+            deployments.append(deployment_item)
+
+        # Also check Helm for any deployments not in our active_deployments
         helm_cmd = (
             f"helm list -n {namespace} -o json"
             if namespace
@@ -620,197 +868,106 @@ async def list_deployments_endpoint(
             lambda: subprocess.run(helm_cmd, shell=True, text=True, capture_output=True)
         )
 
-        if helm_result.returncode != 0:
-            logger.error(f"Failed to get Helm releases: {helm_result.stderr}")
-            return []
+        if helm_result.returncode == 0:
+            try:
+                helm_releases = json.loads(helm_result.stdout)
 
-        deployments = []
-        try:
-            helm_releases = json.loads(helm_result.stdout)
+                for release in helm_releases:
+                    release_name = release.get("name")
+                    release_namespace = release.get("namespace", namespace or "default")
 
-            for release in helm_releases:
-                release_name = release.get("name")
-                release_namespace = release.get("namespace", namespace or "default")
+                    # Skip if already in our list (by name and namespace)
+                    if any(
+                        d.name == release_name and d.namespace == release_namespace
+                        for d in deployments
+                    ):
+                        continue
 
-                if not release_name:
-                    continue
+                    # Generate a deterministic deployment ID based on namespace and release name
+                    # This ensures the same deployment gets the same ID across server restarts
+                    unique_key = f"{release_namespace}:{release_name}"
+                    deployment_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, unique_key))
 
-                deployment_status = await get_enhanced_deployment_status(
-                    release_namespace, release_name
-                )
-                deployments.append(deployment_status)
+                    # Get enhanced status
+                    status = await get_enhanced_deployment_status(
+                        release_namespace, release_name
+                    )
 
-        except json.JSONDecodeError as e:
-            logger.error(f"Error parsing Helm JSON: {str(e)}")
-            logger.error(f"Helm output: {helm_result.stdout}")
+                    # Create a deployment list item
+                    deployment_item = DeploymentListItem(
+                        deployment_id=deployment_id,
+                        name=release_name,
+                        namespace=release_namespace,
+                        status=status.get("status", "unknown"),
+                        model=status.get("model", "unknown"),
+                        created_at=release.get("updated", datetime.now().isoformat()),
+                        ready=status.get("llm_ready", False),
+                        health_status=status.get("llm_status", "unknown"),
+                    )
+                    deployments.append(deployment_item)
+
+                    # Add to active_deployments for future reference
+                    active_deployments[deployment_id] = {
+                        "release_name": release_name,
+                        "namespace": release_namespace,
+                        "status": status.get("status", "unknown"),
+                        "model_path": status.get("model", "unknown"),
+                        "created_at": release.get(
+                            "updated", datetime.now().isoformat()
+                        ),
+                        "llm_ready": status.get("llm_ready", False),
+                        "llm_status": status.get("llm_status", "unknown"),
+                    }
+            except json.JSONDecodeError as e:
+                logger.error(f"Error parsing Helm JSON: {str(e)}")
+            except Exception as e:
+                logger.error(f"Error listing deployments: {str(e)}")
 
         return deployments
     except Exception as e:
         logger.error(f"List error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# @app.get("/deployments/", response_model=List[DeploymentStatus])
-# async def list_deployments_endpoint(
-#     namespace: Optional[str] = Query(None, description="Filter by namespace")
-# ):
-#     """List all vLLM deployments"""
-#     try:
-#         args = Namespace(
-#             namespace=namespace, stream_output=False, debug=False, command="list"
-#         )
-
-#         cmd = (
-#             f"kubectl get pods --all-namespaces -o json"
-#             if not namespace
-#             else f"kubectl get pods -n {namespace} -o json"
-#         )
-#         result = await asyncio.to_thread(
-#             lambda: subprocess.run(cmd, shell=True, text=True, capture_output=True)
-#         )
-
-#         deployments = []
-
-#         if result.returncode == 0 and result.stdout:
-#             try:
-#                 pods_data = json.loads(result.stdout)
-
-#                 deployment_pods = {}
-#                 for pod in pods_data.get("items", []):
-#                     name = pod["metadata"]["labels"].get("app.kubernetes.io/instance")
-#                     if name:
-#                         if name not in deployment_pods:
-#                             deployment_pods[name] = []
-#                         deployment_pods[name].append(pod)
-
-#                 for name, pods in deployment_pods.items():
-#                     if pods:
-#                         pod = pods[0]
-#                         labels = pod["metadata"]["labels"]
-#                         namespace = pod["metadata"]["namespace"]
-
-#                         helm_cmd = f"helm get values -n {namespace} {name} -o json"
-#                         helm_result = await asyncio.to_thread(
-#                             lambda: subprocess.run(
-#                                 helm_cmd, shell=True, text=True, capture_output=True
-#                             )
-#                         )
-
-#                         model = "unknown"
-#                         gpu_count = 0
-#                         cpu_count = 0
-#                         memory = ""
-
-#                         if helm_result.returncode == 0 and helm_result.stdout:
-#                             try:
-#                                 values = json.loads(helm_result.stdout)
-#                                 if (
-#                                     "servingEngineSpec" in values
-#                                     and "modelSpec" in values["servingEngineSpec"]
-#                                 ):
-#                                     model_spec = values["servingEngineSpec"][
-#                                         "modelSpec"
-#                                     ][0]
-#                                     model = model_spec.get("modelURL", "unknown")
-#                                     gpu_count = model_spec.get("requestGPU", 0)
-#                                     cpu_count = model_spec.get("requestCPU", 0)
-#                                     memory = model_spec.get("requestMemory", "")
-#                             except json.JSONDecodeError:
-#                                 pass
-
-#                         pod_status = {}
-#                         for pod in pods:
-#                             pod_name = pod["metadata"]["name"]
-#                             phase = pod["status"]["phase"]
-#                             pod_status[pod_name] = phase
-
-#                         service_url = f"{name}.{namespace}.svc.cluster.local"
-
-#                         deployment_status = DeploymentStatus(
-#                             name=name,
-#                             namespace=namespace,
-#                             status=(
-#                                 "Running"
-#                                 if all(
-#                                     status == "Running"
-#                                     for status in pod_status.values()
-#                                 )
-#                                 else "Pending"
-#                             ),
-#                             model=model,
-#                             created_at=pod["metadata"]["creationTimestamp"],
-#                             gpu_count=gpu_count,
-#                             cpu_count=cpu_count,
-#                             memory=memory,
-#                             image=pod["spec"]["containers"][0]["image"],
-#                             service_url=service_url,
-#                             pod_status=pod_status,
-#                         )
-#                         deployments.append(deployment_status)
-#             except Exception as e:
-#                 logger.error(f"Error parsing JSON: {str(e)}")
-#         return deployments
-#     except Exception as e:
-#         logger.error(f"List error: {str(e)}")
-#         raise HTTPException(status_code=500, detail=str(e))
+        return []
 
 
 @app.get("/deployments/{deployment_id}", response_model=DeploymentStatus)
 async def get_deployment(deployment_id: str):
+    """Get detailed information about a specific LLM deployment"""
     if deployment_id not in active_deployments:
         raise HTTPException(status_code=404, detail="Deployment not found")
 
     deployment = active_deployments[deployment_id]
-
     namespace = deployment["namespace"]
     release_name = deployment["release_name"]
 
-    cmd = f"kubectl get pods -n {namespace} -l app={release_name} -o json"
-    result = await asyncio.to_thread(
-        lambda: subprocess.run(cmd, shell=True, text=True, capture_output=True)
-    )
+    # Get enhanced deployment status to check health and readiness
+    enhanced_status = await get_enhanced_deployment_status(namespace, release_name)
 
-    pod_status = {}
-    status = deployment["status"]
+    # Determine overall health status based on enhanced status
+    health_status = enhanced_status.get("llm_status", "unknown")
+    ready = enhanced_status.get("llm_ready", False)
+    status = enhanced_status.get("status", deployment.get("status", "unknown"))
 
-    if result.returncode == 0 and result.stdout:
-        try:
-            pods_data = json.loads(result.stdout)
+    # Update the deployment in active_deployments with latest status
+    deployment["status"] = status
+    deployment["llm_status"] = health_status
+    deployment["llm_ready"] = ready
 
-            running_pods = 0
-            total_pods = len(pods_data.get("items", []))
-
-            for pod in pods_data.get("items", []):
-                pod_name = pod["metadata"]["name"]
-                phase = pod["status"]["phase"]
-                pod_status[pod_name] = phase
-
-                if phase == "Running":
-                    running_pods += 1
-
-            if total_pods > 0:
-                if running_pods == total_pods:
-                    status = "Running"
-                elif running_pods > 0:
-                    status = "Partially Running"
-                else:
-                    status = "Pending"
-        except Exception as e:
-            logger.error(f"Error parsing JSON: {str(e)}")
-
+    # Create the deployment status response
     deployment_status = DeploymentStatus(
+        deployment_id=deployment_id,
         name=deployment["release_name"],
         namespace=deployment["namespace"],
         status=status,
         model=deployment["model_path"],
         created_at=deployment["created_at"],
         updated_at=deployment.get("updated_at"),
-        gpu_count=deployment["gpu_count"],
-        cpu_count=deployment["cpu_count"],
-        memory=deployment["memory"],
-        image=deployment["image"],
+        gpu_count=deployment.get("gpu_count", 1),
+        cpu_count=deployment.get("cpu_count", 2),
+        memory=deployment.get("memory", "8Gi"),
+        image=deployment.get("image", "vllm/vllm-openai:latest"),
         service_url=f"{deployment['release_name']}.{deployment['namespace']}.svc.cluster.local",
-        pod_status=pod_status,
+        ready=ready,
+        health_status=health_status,
     )
 
     return deployment_status
@@ -831,8 +988,6 @@ async def delete_deployment_by_id(
     args = Namespace(
         namespace=namespace,
         release_name=release_name,
-        purge=True,
-        stream_output=False,
         debug=False,
         command="delete",
     )
@@ -843,7 +998,21 @@ async def delete_deployment_by_id(
             success = delete_deployment(args)
 
             if success:
+                # First update status to deleted
                 deployment["status"] = "deleted"
+                
+                # Then remove from active_deployments after a short delay
+                # This allows the UI to show the deleted status briefly before removal
+                def remove_after_delay():
+                    import time
+                    time.sleep(5)  # Wait 5 seconds before removing
+                    if deployment_id in active_deployments:
+                        logger.info(f"Removing deployment {release_name} from active deployments")
+                        active_deployments.pop(deployment_id, None)
+                
+                # Start a new thread to remove after delay
+                import threading
+                threading.Thread(target=remove_after_delay, daemon=True).start()
             else:
                 deployment["status"] = "delete_failed"
                 deployment["error"] = "Deletion failed"
@@ -882,7 +1051,6 @@ async def delete_deployment_endpoint(
             namespace=namespace,
             release_name=release_name,
             purge=True,
-            stream_output=False,
             debug=False,
             command="delete",
         )
@@ -912,6 +1080,7 @@ async def get_deployment_logs(
     deployment_id: str,
     tail: Optional[int] = Query(100, description="Number of lines to return"),
 ):
+    """Get logs for a specific deployment"""
     if deployment_id not in active_deployments:
         raise HTTPException(status_code=404, detail="Deployment not found")
 
@@ -919,7 +1088,8 @@ async def get_deployment_logs(
     namespace = deployment["namespace"]
     release_name = deployment["release_name"]
 
-    pod_cmd = f"kubectl get pods -n {namespace} -l app={release_name} -o jsonpath='{{.items[*].metadata.name}}'"
+    # Get all pods in the namespace
+    pod_cmd = f"kubectl get pods -n {namespace} -o json"
     result = await asyncio.to_thread(
         lambda: subprocess.run(pod_cmd, shell=True, text=True, capture_output=True)
     )
@@ -929,10 +1099,23 @@ async def get_deployment_logs(
             status_code=500, detail=f"Failed to get pods: {result.stderr}"
         )
 
-    pod_names = result.stdout.split()
+    # Parse the JSON and filter for pods that belong to this deployment
+    pod_names = []
+    try:
+        pods_data = json.loads(result.stdout)
+        for pod in pods_data.get("items", []):
+            pod_name = pod["metadata"]["name"]
+            # Filter for pods that belong to this deployment
+            if release_name in pod_name:
+                pod_names.append(pod_name)
+                logger.info(f"Found pod for deployment {release_name}: {pod_name}")
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse pods JSON: {str(e)}")
+    
     if not pod_names:
         raise HTTPException(status_code=404, detail="No pods found")
 
+    # Get logs for each pod
     logs = []
     for pod_name in pod_names:
         log_cmd = f"kubectl logs -n {namespace} {pod_name} --tail={tail}"
@@ -953,6 +1136,82 @@ async def get_deployment_logs(
                     )
 
     return logs
+
+
+@app.post("/deployments/{deployment_id}/refresh")
+async def refresh_deployment_status(deployment_id: str):
+    """Manually refresh the status of a deployment"""
+    if deployment_id not in active_deployments:
+        raise HTTPException(status_code=404, detail="Deployment not found")
+
+    deployment = active_deployments[deployment_id]
+    namespace = deployment["namespace"]
+    release_name = deployment["release_name"]
+
+    # Get enhanced deployment status to check health and readiness
+    enhanced_status = await get_enhanced_deployment_status(namespace, release_name)
+
+    # Update the deployment in active_deployments with latest status
+    deployment["status"] = enhanced_status.get(
+        "status", deployment.get("status", "unknown")
+    )
+    deployment["llm_status"] = enhanced_status.get("llm_status", "unknown")
+    deployment["llm_ready"] = enhanced_status.get("llm_ready", False)
+
+    # Return the updated status
+    return {
+        "success": True,
+        "deployment_id": deployment_id,
+        "status": deployment["status"],
+        "health_status": deployment["llm_status"],
+        "ready": deployment["llm_ready"],
+    }
+
+
+@app.get("/deployments/by-name/{namespace}/{name}", response_model=DeploymentStatus)
+async def get_deployment_by_name(namespace: str, name: str):
+    """Get a deployment by namespace and name"""
+    # First check if it's in active_deployments
+    for deployment_id, deployment in active_deployments.items():
+        if (
+            deployment.get("namespace") == namespace
+            and deployment.get("release_name") == name
+        ):
+            # Return the deployment using the existing get_deployment endpoint
+            return await get_deployment(deployment_id)
+
+    # If not found, check if it exists in Kubernetes
+    # Get enhanced status
+    try:
+        status = await get_enhanced_deployment_status(namespace, name)
+
+        # If we get here, the deployment exists, so add it to active_deployments
+        deployment_id = str(uuid.uuid4())
+
+        active_deployments[deployment_id] = {
+            "release_name": name,
+            "namespace": namespace,
+            "status": status.get("status", "unknown"),
+            "model_path": status.get("model", "unknown"),
+            "created_at": datetime.now().isoformat(),
+            "llm_ready": status.get("llm_ready", False),
+            "llm_status": status.get("llm_status", "unknown"),
+            "gpu_count": status.get("gpu_count", 1),
+            "cpu_count": status.get("cpu_count", 2),
+            "memory": status.get("memory", "8Gi"),
+            "image": status.get("image", "vllm/vllm-openai:latest"),
+        }
+
+        # Return the deployment using the existing get_deployment endpoint
+        return await get_deployment(deployment_id)
+    except Exception as e:
+        logger.error(
+            f"Error getting deployment {name} in namespace {namespace}: {str(e)}"
+        )
+        raise HTTPException(
+            status_code=404,
+            detail=f"Deployment {name} not found in namespace {namespace}",
+        )
 
 
 @app.get("/health")
