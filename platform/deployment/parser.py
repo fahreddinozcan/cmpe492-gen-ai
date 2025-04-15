@@ -133,7 +133,7 @@ def _add_deploy_args(parser):
     # Chart path
     parser.add_argument(
         "--chart-path",
-        default="./vllm-stack",
+        default="./vllm-chart",
         help="Path to vLLM Helm chart (default: ./vllm-chart)",
     )
 

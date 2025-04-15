@@ -69,7 +69,7 @@ async def create_deployment(
             enable_chunked_prefill=request.enable_chunked_prefill,
             debug=request.debug,
             helm_args=request.helm_args,
-            chart_path="./vllm-stack",  # Set default chart path
+            chart_path="./vllm-chart",  # Set default chart path
             command="deploy",
         )
 

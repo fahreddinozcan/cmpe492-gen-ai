@@ -8,7 +8,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("vllm-deploy")
 
-DEFAULT_PATH = "../vllm-stack/values.yaml"
+DEFAULT_PATH = "../vllm-chart/values.yaml"
 
 
 # def generate_values(args):
