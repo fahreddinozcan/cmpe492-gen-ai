@@ -5,14 +5,14 @@ metadata:
   name: "{{ .Release.Name }}-router-service"
   namespace: {{ .Release.Namespace }}
   labels:
-  {{- include "chart.routerLabels" . | nindent 4 }}
+    {{- include "chart.routerLabels" . | nindent 4 }}
 spec:
-  type: ClusterIP
+  type: {{ .Values.routerSpec.serviceType | default "ClusterIP" }}
   ports:
     - name: "router-sport"
       port: {{ .Values.routerSpec.servicePort }}
       targetPort: {{ .Values.routerSpec.containerPort }}
       protocol: TCP
   selector:
-  {{- include "chart.routerLabels" . | nindent 4 }}
+    {{- include "chart.routerLabels" . | nindent 4 }}
 {{- end }}

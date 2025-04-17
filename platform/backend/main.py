@@ -112,6 +112,8 @@ class DeploymentStatus(BaseModel):
     memory: str
     image: str
     service_url: str
+    external_ip: Optional[str] = None
+    public_url: Optional[str] = None
     ready: bool = False
     health_status: str = (
         "unknown"  # Can be "healthy", "unhealthy", "starting", "unknown"
@@ -210,7 +212,7 @@ class ConnectionManager:
         self.active_connections: Dict[str, List[WebSocket]] = {}
         self.log_tasks: Dict[str, asyncio.Task] = {}
 
-    async def connect(self, websocket: WebSocket, deployment_id: str):
+    async def connect(self, websocket: WebSocket, deployment_id: str, pod_type: str = None):
         await websocket.accept()
         if deployment_id not in self.active_connections:
             self.active_connections[deployment_id] = []
@@ -224,6 +226,7 @@ class ConnectionManager:
                         deployment_id,
                         deployment["namespace"],
                         deployment["release_name"],
+                        pod_type
                     )
                 )
 
@@ -250,7 +253,7 @@ class ConnectionManager:
             for websocket in disconnected_websockets:
                 self.disconnect(websocket, deployment_id)
 
-    async def stream_logs(self, deployment_id: str, namespace: str, release_name: str):
+    async def stream_logs(self, deployment_id: str, namespace: str, release_name: str, pod_type: str = None):
         try:
             # Get all pods in the namespace
             pod_cmd = f"kubectl get pods -n {namespace} -o json"
@@ -275,8 +278,17 @@ class ConnectionManager:
                     pod_name = pod["metadata"]["name"]
                     # Filter for pods that belong to this deployment
                     if release_name in pod_name:
-                        pod_names.append(pod_name)
-                        logger.info(f"Found pod for streaming logs from deployment {release_name}: {pod_name}")
+                        # Filter by pod type if specified
+                        if pod_type == "vllm" and "-vllm-" in pod_name and "-router-" not in pod_name:
+                            pod_names.append(pod_name)
+                            logger.info(f"Found vLLM pod for streaming logs from deployment {release_name}: {pod_name}")
+                        elif pod_type == "router" and "-router-" in pod_name:
+                            pod_names.append(pod_name)
+                            logger.info(f"Found router pod for streaming logs from deployment {release_name}: {pod_name}")
+                        elif pod_type is None:
+                            # If no pod_type specified, include all pods
+                            pod_names.append(pod_name)
+                            logger.info(f"Found pod for streaming logs from deployment {release_name}: {pod_name}")
             except json.JSONDecodeError as e:
                 logger.error(f"Failed to parse pods JSON: {str(e)}")
                 await self.send_message(
@@ -337,9 +349,9 @@ manager = ConnectionManager()
 
 
 @app.websocket("/ws/logs/{deployment_id}")
-async def websocket_logs(websocket: WebSocket, deployment_id: str):
+async def websocket_logs(websocket: WebSocket, deployment_id: str, pod_type: str = None):
     try:
-        await manager.connect(websocket, deployment_id)
+        await manager.connect(websocket, deployment_id, pod_type)
         while True:
             await websocket.receive_text()
     except WebSocketDisconnect:
@@ -595,7 +607,38 @@ async def get_deployment_status(namespace: str, release_name: str) -> Dict[str, 
         else:
             overall_status = "Pending"
 
-        service_url = f"{release_name}.{namespace}.svc.cluster.local"
+        service_url = f"{release_name}-router-service.{namespace}.svc.cluster.local"
+        public_url = None
+        external_ip = None
+
+        # Get service info
+        service_cmd = f"kubectl get service {release_name}-router-service -n {namespace} -o json"
+        service_result = await asyncio.to_thread(
+            lambda: subprocess.run(
+                service_cmd, shell=True, text=True, capture_output=True
+            )
+        )
+
+        if service_result.returncode == 0:
+            try:
+                service_data = json.loads(service_result.stdout)
+                service_type = service_data.get("spec", {}).get("type", "")
+
+                # Check if LoadBalancer has an assigned external IP
+                if service_type == "LoadBalancer":
+                    ingress = service_data.get("status", {}).get("loadBalancer", {}).get(
+                        "ingress", []
+                    )
+                    if ingress and "hostname" in ingress[0]:
+                        external_ip = ingress[0]['hostname']
+                        public_url = f"http://{external_ip}"
+                        logger.info(f"Found external hostname for {release_name}: {external_ip}")
+                    elif ingress and "ip" in ingress[0]:
+                        external_ip = ingress[0]['ip']
+                        public_url = f"http://{external_ip}"
+                        logger.info(f"Found external IP for {release_name}: {external_ip}")
+            except json.JSONDecodeError:
+                logger.error("Failed to parse service JSON")
 
         return {
             "name": release_name,
@@ -610,6 +653,7 @@ async def get_deployment_status(namespace: str, release_name: str) -> Dict[str, 
             "memory": memory,
             "image": image,
             "service_url": service_url,
+            "public_url": public_url,
             "pod_status": pod_status,
         }
 
@@ -644,6 +688,62 @@ async def get_enhanced_deployment_status(
     pods_result = await asyncio.to_thread(
         lambda: subprocess.run(pods_cmd, shell=True, text=True, capture_output=True)
     )
+    
+    # Get the external IP from the LoadBalancer service
+    external_ip = None
+    try:
+        # Get service details to check for LoadBalancer external IP
+        cmd = f"kubectl get service {release_name}-router-service -n {namespace} -o json"
+        logger.info(f"Running command to get service details: {cmd}")
+        result = await asyncio.to_thread(
+            lambda: subprocess.run(
+                cmd, shell=True, text=True, capture_output=True
+            )
+        )
+        
+        if result.returncode != 0:
+            logger.error(f"Command failed with return code {result.returncode}: {result.stderr}")
+        else:
+            logger.info(f"Successfully retrieved service details for {release_name}")
+            
+        service_json = json.loads(result.stdout)
+        
+        # Log the service type
+        service_type = service_json.get("spec", {}).get("type")
+        logger.info(f"Service type for {release_name}: {service_type}")
+        
+        # Check if it's a LoadBalancer and has an external IP
+        if service_type == "LoadBalancer":
+            # Log the loadBalancer status
+            load_balancer = service_json.get("status", {}).get("loadBalancer", {})
+            logger.info(f"LoadBalancer status: {load_balancer}")
+            
+            ingress = load_balancer.get("ingress", [])
+            logger.info(f"Ingress entries: {ingress}")
+            
+            if ingress:
+                logger.info(f"First ingress entry: {ingress[0]}")
+                
+                if "hostname" in ingress[0]:
+                    external_ip = ingress[0]['hostname']
+                    logger.info(f"Found external hostname for {release_name}: {external_ip}")
+                elif "ip" in ingress[0]:
+                    external_ip = ingress[0]['ip']
+                    logger.info(f"Found external IP for {release_name}: {external_ip}")
+                else:
+                    logger.warning(f"Ingress entry exists but contains neither hostname nor ip: {ingress[0]}")
+            else:
+                logger.warning(f"No ingress entries found for LoadBalancer service {release_name}-router-service")
+        else:
+            logger.warning(f"Service {release_name}-router-service is not of type LoadBalancer, but {service_type}")
+        
+        # Add external_ip to deployment_status
+        logger.info(f"Setting external_ip to: {external_ip}")
+        deployment_status["external_ip"] = external_ip
+    except Exception as e:
+        logger.error(f"Error getting external IP: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
 
     all_pods_ready = False
     if pods_result.returncode == 0 and pods_result.stdout:
@@ -939,38 +1039,77 @@ async def get_deployment(deployment_id: str):
     namespace = deployment["namespace"]
     release_name = deployment["release_name"]
 
-    # Get enhanced deployment status to check health and readiness
+    # Get enhanced status with readiness information
     enhanced_status = await get_enhanced_deployment_status(namespace, release_name)
-
-    # Determine overall health status based on enhanced status
-    health_status = enhanced_status.get("llm_status", "unknown")
-    ready = enhanced_status.get("llm_ready", False)
-    status = enhanced_status.get("status", deployment.get("status", "unknown"))
-
-    # Update the deployment in active_deployments with latest status
-    deployment["status"] = status
-    deployment["llm_status"] = health_status
-    deployment["llm_ready"] = ready
-
-    # Create the deployment status response
-    deployment_status = DeploymentStatus(
+    
+    # Directly get the external IP from kubectl
+    external_ip = None
+    try:
+        # Use kubectl to get the external IP directly
+        cmd = f"kubectl get service {release_name}-router-service -n {namespace} -o jsonpath='{{.status.loadBalancer.ingress[0].ip}}'"
+        logger.info(f"Fetching external IP with command: {cmd}")
+        result = await asyncio.to_thread(
+            lambda: subprocess.run(cmd, shell=True, text=True, capture_output=True)
+        )
+        
+        if result.returncode == 0 and result.stdout.strip():
+            external_ip = result.stdout.strip()
+            logger.info(f"Successfully found external IP: {external_ip}")
+        else:
+            # Try hostname if IP is not available
+            cmd = f"kubectl get service {release_name}-router-service -n {namespace} -o jsonpath='{{.status.loadBalancer.ingress[0].hostname}}'"
+            logger.info(f"Trying hostname with command: {cmd}")
+            result = await asyncio.to_thread(
+                lambda: subprocess.run(cmd, shell=True, text=True, capture_output=True)
+            )
+            
+            if result.returncode == 0 and result.stdout.strip():
+                external_ip = result.stdout.strip()
+                logger.info(f"Successfully found external hostname: {external_ip}")
+            else:
+                # Try a more direct approach - get the external IP from kubectl get services
+                cmd = f"kubectl get services -n {namespace} {release_name}-router-service -o custom-columns=EXTERNAL-IP:.status.loadBalancer.ingress[0].ip --no-headers"
+                logger.info(f"Trying direct kubectl command: {cmd}")
+                result = await asyncio.to_thread(
+                    lambda: subprocess.run(cmd, shell=True, text=True, capture_output=True)
+                )
+                
+                if result.returncode == 0 and result.stdout.strip() and result.stdout.strip() != "<none>":
+                    external_ip = result.stdout.strip()
+                    logger.info(f"Found external IP with direct kubectl command: {external_ip}")
+                else:
+                    logger.warning(f"Could not find external IP or hostname. Command output: {result.stdout}, Error: {result.stderr}")
+    except Exception as e:
+        logger.error(f"Error getting external IP directly: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+    
+    # Construct the response
+    response = DeploymentStatus(
         deployment_id=deployment_id,
-        name=deployment["release_name"],
-        namespace=deployment["namespace"],
-        status=status,
-        model=deployment["model_path"],
-        created_at=deployment["created_at"],
+        name=release_name,
+        namespace=namespace,
+        status=enhanced_status.get("status", "Unknown"),
+        model=deployment.get("model_path", "Unknown"),
+        created_at=deployment.get("created_at", ""),
         updated_at=deployment.get("updated_at"),
-        gpu_count=deployment.get("gpu_count", 1),
-        cpu_count=deployment.get("cpu_count", 2),
-        memory=deployment.get("memory", "8Gi"),
-        image=deployment.get("image", "vllm/vllm-openai:latest"),
-        service_url=f"{deployment['release_name']}.{deployment['namespace']}.svc.cluster.local",
-        ready=ready,
-        health_status=health_status,
+        gpu_count=deployment.get("gpu_count", 0),
+        cpu_count=deployment.get("cpu_count", 0),
+        memory=deployment.get("memory", ""),
+        image=f"{deployment.get('image_repo', 'vllm/vllm-openai')}:{deployment.get('image_tag', 'latest')}",
+        service_url=enhanced_status.get("service_url", ""),
+        ready=enhanced_status.get("ready", False),
+        health_status=enhanced_status.get("health_status", "unknown"),
+        external_ip=external_ip,  # Set the external IP directly
     )
-
-    return deployment_status
+    
+    # Add public URL if available from enhanced status or use external IP
+    if enhanced_status.get("public_url"):
+        response.public_url = enhanced_status.get("public_url")
+    elif external_ip:  # Use external IP for public URL if available
+        response.public_url = f"http://{external_ip}"
+    
+    return response
 
 
 @app.delete("/deployments/{deployment_id}")
@@ -1213,6 +1352,192 @@ async def get_deployment_by_name(namespace: str, name: str):
             detail=f"Deployment {name} not found in namespace {namespace}",
         )
 
+
+@app.post("/deployments/{deployment_id}/port-forward")
+async def port_forward_to_deployment(deployment_id: str, background_tasks: BackgroundTasks):
+    """Start port forwarding to a deployment to allow direct communication with the LLM"""
+    if deployment_id not in active_deployments:
+        raise HTTPException(status_code=404, detail="Deployment not found")
+
+    deployment = active_deployments[deployment_id]
+    namespace = deployment["namespace"]
+    release_name = deployment["release_name"]
+
+    # Check if the deployment is ready
+    enhanced_status = await get_enhanced_deployment_status(namespace, release_name)
+    if not enhanced_status.get("llm_ready", False):
+        raise HTTPException(status_code=400, detail="Deployment is not ready yet")
+
+    # Start port forwarding in the background
+    # This will run kubectl port-forward to forward the service port to localhost
+    port = 8000  # You can make this dynamic if needed
+    
+    # Kill any existing port-forward on this port
+    kill_cmd = f"pkill -f 'kubectl port-forward.*{port}'"
+    try:
+        await asyncio.to_thread(
+            lambda: subprocess.run(kill_cmd, shell=True, text=True, capture_output=True)
+        )
+    except Exception as e:
+        logger.warning(f"Error killing existing port-forward: {str(e)}")
+
+    # Start new port-forward
+    port_forward_cmd = f"kubectl port-forward -n {namespace} svc/{release_name}-router-service {port}:80"
+    
+    # Run the port-forward command in the background
+    async def _port_forward():
+        try:
+            process = await asyncio.create_subprocess_shell(
+                port_forward_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            # Store the process information for later cleanup
+            if not hasattr(app, "port_forward_processes"):
+                app.port_forward_processes = {}
+            app.port_forward_processes[deployment_id] = process
+            
+            # Log the output
+            logger.info(f"Started port forwarding for {release_name} in namespace {namespace} on port {port}")
+            
+            # Wait for a short time to ensure port-forward is established
+            await asyncio.sleep(2)
+            
+            # Check if the port is actually open
+            try:
+                # Try to connect to the port
+                reader, writer = await asyncio.open_connection('localhost', port)
+                writer.close()
+                await writer.wait_closed()
+                logger.info(f"Port {port} is open and accepting connections")
+            except Exception as e:
+                logger.error(f"Port {port} is not accessible: {str(e)}")
+                return False
+                
+            return True
+        except Exception as e:
+            logger.error(f"Error starting port-forward: {str(e)}")
+            return False
+    
+    # Start the port forwarding
+    background_tasks.add_task(_port_forward)
+    
+    # Return success immediately, the actual port-forward will happen in the background
+    return {"success": True, "message": f"Port forwarding started for {release_name} on port {port}", "port": port}
+
+@app.post("/deployments/{deployment_id}/chat")
+async def proxy_chat_to_llm(deployment_id: str, request: dict):
+    """Proxy chat requests to the LLM"""
+    if deployment_id not in active_deployments:
+        raise HTTPException(status_code=404, detail="Deployment not found")
+
+    deployment = active_deployments[deployment_id]
+    namespace = deployment["namespace"]
+    release_name = deployment["release_name"]
+
+    # Check if the deployment is ready
+    enhanced_status = await get_enhanced_deployment_status(namespace, release_name)
+    if not enhanced_status.get("llm_ready", False):
+        raise HTTPException(status_code=400, detail="Deployment is not ready yet")
+
+    # Get the service URL
+    service_url = f"{release_name}-router-service.{namespace}.svc.cluster.local"
+    
+    # Format the URL for the chat completions endpoint
+    api_url = f"http://{service_url}/v1/chat/completions"
+    
+    logger.info(f"Proxying chat request to: {api_url}")
+    
+    try:
+        # Use standard requests library instead of httpx
+        import requests
+        
+        # Make the request to the LLM API
+        response = await asyncio.to_thread(
+            lambda: requests.post(
+                api_url,
+                json=request,
+                timeout=60.0  # Longer timeout for LLM responses
+            )
+        )
+        
+        # Get the response content
+        if response.status_code != 200:
+            logger.error(f"Error from LLM API: {response.status_code} - {response.text}")
+            raise HTTPException(
+                status_code=response.status_code,
+                detail=f"Error from LLM API: {response.text}"
+            )
+            
+        # Return the LLM response directly
+        return response.json()
+    except requests.RequestException as e:
+        logger.error(f"Error connecting to LLM API: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error connecting to LLM API: {str(e)}"
+        )
+    except Exception as e:
+        logger.error(f"Unexpected error proxying chat request: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unexpected error proxying chat request: {str(e)}"
+        )
+
+@app.get("/deployments/{deployment_id}/pods")
+async def get_deployment_pods(deployment_id: str):
+    """Get pod status for a specific deployment"""
+    if deployment_id not in active_deployments:
+        raise HTTPException(status_code=404, detail="Deployment not found")
+
+    deployment = active_deployments[deployment_id]
+    namespace = deployment["namespace"]
+    release_name = deployment["release_name"]
+
+    try:
+        # Get all pods in the namespace
+        cmd = f"kubectl get pods -n {namespace} -o json"
+        result = await run_command(cmd)
+        pods_json = json.loads(result.stdout)
+
+        # Filter pods that belong to this deployment
+        deployment_pods = []
+        for pod in pods_json.get("items", []):
+            pod_name = pod.get("metadata", {}).get("name", "")
+            if release_name in pod_name:
+                # Extract relevant information
+                status = pod.get("status", {})
+                container_statuses = status.get("containerStatuses", [])
+                restarts = 0
+                if container_statuses:
+                    restarts = container_statuses[0].get("restartCount", 0)
+
+                pod_status = "Unknown"
+                if status.get("phase"):
+                    pod_status = status.get("phase")
+                
+                # Check for container errors
+                if any(cs.get("state", {}).get("waiting", {}).get("reason") == "CrashLoopBackOff" 
+                       for cs in container_statuses):
+                    pod_status = "CrashLoopBackOff"
+                elif any(cs.get("state", {}).get("waiting", {}).get("reason") == "Error" 
+                         for cs in container_statuses):
+                    pod_status = "Error"
+
+                deployment_pods.append({
+                    "name": pod_name,
+                    "status": pod_status,
+                    "restarts": restarts,
+                    "ready": status.get("phase") == "Running" and all(cs.get("ready", False) for cs in container_statuses),
+                    "created": pod.get("metadata", {}).get("creationTimestamp", ""),
+                })
+
+        logger.info(f"Found {len(deployment_pods)} pods for deployment {release_name}")
+        return {"pods": deployment_pods}
+
+    except Exception as e:
+        logger.error(f"Error getting pod status: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error getting pod status: {str(e)}")
 
 @app.get("/health")
 async def health_check():

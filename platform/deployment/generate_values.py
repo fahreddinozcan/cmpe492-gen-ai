@@ -136,7 +136,11 @@ DEFAULT_PATH = "../vllm-stack/values.yaml"
 
 
 def generate_values(args):
-    """Generate values.yaml file for Helm based on provided arguments"""
+    """Generate values.yaml file for Helm based on provided arguments
+    
+    To make the deployment publicly accessible, we set the service type to LoadBalancer.
+    This will provision a cloud load balancer that exposes the service with a public IP.
+    """
     logger.info("Generating values.yaml file")
 
     values = {
@@ -180,6 +184,7 @@ def generate_values(args):
             "replicaCount": 1,
             "containerPort": 8000,
             "servicePort": 80,
+            "serviceType": "LoadBalancer",  # Change service type to LoadBalancer for public access
             "serviceDiscovery": "k8s",
             "routingLogic": "roundrobin",
             "engineScrapeInterval": 15,

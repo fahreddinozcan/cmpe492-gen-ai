@@ -1,0 +1,13 @@
+{
+  "name": "cmpe492-gen-ai",
+  "version": "1.0.0",
+  "description": "CMPE492 Gen AI Project",
+  "scripts": {
+    "start:frontend": "cd vdeploy/console && npm run dev",
+    "start:backend": "cd platform/backend && uvicorn main:app --reload --host 0.0.0.0 --port 8000",
+    "dev": "concurrently \"npm run start:backend\" \"npm run start:frontend\""
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
