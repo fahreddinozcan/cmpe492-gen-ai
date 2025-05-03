@@ -87,6 +87,45 @@ export interface ChatResponse {
   };
 }
 
+// Cluster API Types
+export interface ClusterListItem {
+  cluster_id: string;
+  name: string;
+  status: string;
+  zone: string;
+  project_id: string;
+  created_at?: string;
+}
+
+export interface ClusterCreateRequest {
+  project_id: string;
+  zone: string;
+  cluster_name: string;
+  machine_type: string;
+  num_nodes: number;
+  gpu_machine_type: string;
+  gpu_type: string;
+  gpu_nodes?: number;
+  gpus_per_node?: number;
+  min_gpu_nodes?: number;
+  max_gpu_nodes?: number;
+  debug?: boolean;
+}
+
+export interface ClusterResponse {
+  success: boolean;
+  message: string;
+  cluster_id?: string;
+  detail?: any;
+}
+
+// GCloud Projects API
+export interface GCloudProject {
+  project_id: string;
+  name: string;
+  project_number: string;
+}
+
 // API functions
 const apiClient = {
   // Deployments
@@ -157,6 +196,43 @@ const apiClient = {
   
   async getVLLMPodLogs(id: string, tail: number = 100): Promise<string[]> {
     return this.getDeploymentLogs(id, tail, 'vllm');
+  },
+
+  // Clusters
+  getClusters(): Promise<ClusterListItem[]> {
+    return fetch(`${API_BASE_URL}/clusters`).then(res => res.json());
+  },
+  getCluster(id: string): Promise<ClusterListItem> {
+    return fetch(`${API_BASE_URL}/clusters/${id}`).then(res => {
+      if (!res.ok) throw new Error('Cluster not found');
+      return res.json();
+    });
+  },
+  createCluster(data: ClusterCreateRequest): Promise<ClusterResponse> {
+    return fetch(`${API_BASE_URL}/clusters`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }).then(res => res.json());
+  },
+  deleteCluster(id: string): Promise<ClusterResponse> {
+    return fetch(`${API_BASE_URL}/clusters/${id}`, {
+      method: 'DELETE',
+    }).then(res => res.json());
+  },
+
+  // CLUSTER PROGRESS API ---
+  async getClusterProgress(clusterId: string) {
+    const res = await fetch(`http://localhost:8000/clusters/${encodeURIComponent(clusterId)}/progress`);
+    if (!res.ok) throw new Error("Failed to fetch cluster progress");
+    return res.json();
+  },
+
+  // GCloud Projects
+  async getGCloudProjects(): Promise<GCloudProject[]> {
+    const res = await fetch(`${API_BASE_URL}/gcloud/projects`);
+    if (!res.ok) throw new Error("Failed to fetch GCloud projects");
+    return res.json();
   },
 
   // WebSocket connection for log streaming
@@ -318,6 +394,54 @@ export function useSendChatMessage() {
       messages: ChatMessage[], 
       options?: { max_tokens?: number, temperature?: number } 
     }) => apiClient.sendChatMessage(deploymentId, messages, options),
+  });
+}
+
+// Cluster React Query hooks
+export function useClusters() {
+  return useQuery<ClusterListItem[]>({
+    queryKey: ['clusters'],
+    queryFn: apiClient.getClusters,
+  });
+}
+
+export function useCluster(id: string) {
+  return useQuery<ClusterListItem>({
+    queryKey: ['cluster', id],
+    queryFn: () => apiClient.getCluster(id),
+    enabled: !!id,
+  });
+}
+
+export function useCreateCluster() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: apiClient.createCluster,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['clusters'] }),
+  });
+}
+
+export function useDeleteCluster() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: apiClient.deleteCluster,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['clusters'] }),
+  });
+}
+
+export function useClusterProgress(clusterId: string | undefined) {
+  return useQuery({
+    queryKey: ['cluster-progress', clusterId],
+    queryFn: () => clusterId ? apiClient.getClusterProgress(clusterId) : Promise.reject('Missing clusterId'),
+    enabled: !!clusterId,
+    refetchInterval: 3000,
+  });
+}
+
+export function useGCloudProjects() {
+  return useQuery<GCloudProject[]>({
+    queryKey: ["gcloud-projects"],
+    queryFn: apiClient.getGCloudProjects,
   });
 }
 

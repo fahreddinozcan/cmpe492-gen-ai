@@ -9,5 +9,9 @@ export default [
     route("deployments/:id", "routes/deployment-detail.tsx"),
     route("deployment-progress/:id", "routes/deployment-progress.tsx"),
     route("completions", "routes/completions.tsx"),
+    route("clusters", "routes/clusters.tsx"),
+    route("clusters/new", "routes/clusters-new.tsx"),
+    route("clusters/:id", "routes/cluster-detail.tsx"),
+    route("clusters-progress/:id", "routes/clusters-progress.tsx"),
   ]),
 ] satisfies RouteConfig;
