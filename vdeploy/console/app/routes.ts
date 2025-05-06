@@ -13,5 +13,6 @@ export default [
     route("clusters/new", "routes/clusters-new.tsx"),
     route("clusters/:id", "routes/cluster-detail.tsx"),
     route("clusters-progress/:id", "routes/clusters-progress.tsx"),
+    route("models", "routes/models.tsx"),
   ]),
 ] satisfies RouteConfig;
