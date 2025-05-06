@@ -15,6 +15,10 @@ const navItems = [
     title: "Completions",
     href: "/completions",
   },
+  {
+    title: "Clusters",
+    href: "/clusters",
+  },
 ];
 
 export function Sidebar() {
