@@ -13,12 +13,12 @@ export interface Deployment {
   created_at: string;
   ready: boolean;
   health_status: string;
-  
+
   // Legacy fields for backward compatibility
   id?: string; // Alias for deployment_id
   model_path?: string; // Alias for model
   release_name?: string; // Alias for name
-  
+
   // Optional fields that may not be in all responses
   gpu_type?: string;
   cpu_count?: number;
@@ -50,6 +50,7 @@ export interface DeploymentFormData {
   dtype: string;
   tensor_parallel_size: number;
   enable_chunked_prefill: boolean;
+  cluster_id?: string; // Added cluster_id field
 }
 
 export interface LogEntry {
@@ -154,7 +155,7 @@ const apiClient = {
     }
     return response.json();
   },
-  
+
   async getVLLMPodLogs(id: string, tail: number = 100): Promise<string[]> {
     return this.getDeploymentLogs(id, tail, 'vllm');
   },
@@ -165,18 +166,18 @@ const apiClient = {
   },
 
   // Check if the deployment is ready for chat
-  async checkDeploymentReadyForChat(deploymentId: string): Promise<{ready: boolean, serviceUrl: string}> {
+  async checkDeploymentReadyForChat(deploymentId: string): Promise<{ ready: boolean, serviceUrl: string }> {
     // Check if the deployment is ready
     const deployment = await this.getDeployment(deploymentId);
     if (!deployment.ready) {
       throw new Error('Deployment is not ready yet');
     }
-    
+
     // Make sure we have a service URL
     if (!deployment.service_url) {
       throw new Error('Deployment does not have a service URL');
     }
-    
+
     return {
       ready: deployment.ready,
       serviceUrl: deployment.service_url
@@ -187,16 +188,16 @@ const apiClient = {
   async sendChatMessage(deploymentId: string, messages: ChatMessage[], options: { max_tokens?: number, temperature?: number } = {}): Promise<ChatResponse> {
     // Check if the deployment exists and is ready
     const deployment = await this.getDeployment(deploymentId);
-    
+
     if (!deployment.ready) {
       throw new Error('Deployment is not ready yet');
     }
-    
+
     // Use our backend proxy endpoint to send the chat request
     const proxyUrl = `${API_BASE_URL}/deployments/${deploymentId}/chat`;
-    
+
     console.log(`Sending chat message via proxy: ${proxyUrl}`);
-    
+
     try {
       const response = await fetch(proxyUrl, {
         method: 'POST',
@@ -211,12 +212,12 @@ const apiClient = {
           model: 'deployed-model', // This is typically ignored by vLLM API
         }),
       });
-      
+
       if (!response.ok) {
         const errorText = await response.text();
         throw new Error(`Failed to send chat message (${response.status}): ${errorText}`);
       }
-      
+
       return response.json();
     } catch (error) {
       console.error('Error sending chat message:', error);
@@ -309,14 +310,14 @@ export function useCheckDeploymentReadyForChat() {
 // React Query hook for sending chat messages
 export function useSendChatMessage() {
   return useMutation({
-    mutationFn: ({ 
-      deploymentId, 
-      messages, 
-      options = {} 
-    }: { 
-      deploymentId: string, 
-      messages: ChatMessage[], 
-      options?: { max_tokens?: number, temperature?: number } 
+    mutationFn: ({
+      deploymentId,
+      messages,
+      options = {}
+    }: {
+      deploymentId: string,
+      messages: ChatMessage[],
+      options?: { max_tokens?: number, temperature?: number }
     }) => apiClient.sendChatMessage(deploymentId, messages, options),
   });
 }

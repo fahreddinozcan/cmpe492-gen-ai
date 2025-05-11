@@ -36,26 +36,68 @@ def check_gcloud_auth():
     logger.info("Checking gcloud authentication...")
     result = run_command("gcloud auth list --format=json", check=False)
 
+    # Log the raw output for debugging
+    logger.info(f"gcloud auth list output: {result.stdout}")
+
     if result.returncode != 0:
         logger.error(
-            "gcloud authentication failed. Please run 'gcloud auth login' first."
+            f"gcloud authentication failed (return code {result.returncode}). Please run 'gcloud auth login' first. Error: {result.stderr}"
         )
         return False
 
     try:
         accounts = json.loads(result.stdout)
+        logger.info(f"Found {len(accounts)} gcloud accounts: {accounts}")
+
         if not accounts:
             logger.error(
                 "No gcloud accounts found. Please run 'gcloud auth login' first."
             )
             return False
-    except json.JSONDecodeError:
+
+        # Check if at least one account is active
+        active_accounts = [acc for acc in accounts if acc.get("status") == "ACTIVE"]
+        logger.info(f"Found {len(active_accounts)} active gcloud accounts")
+
+        if not active_accounts:
+            logger.warning("No active gcloud accounts found. Auth may be incomplete.")
+            # Still return True if there are accounts, even if none are marked as active
+            return len(accounts) > 0
+
+        return True
+    except json.JSONDecodeError as e:
         logger.error(
-            "Failed to parse gcloud auth output. Please check gcloud installation."
+            f"Failed to parse gcloud auth output: {e}. Please check gcloud installation."
         )
         return False
+    except Exception as e:
+        logger.error(f"Unexpected error checking gcloud auth: {e}")
+        return False
 
-    return True
+
+def list_gcp_projects():
+    """List all available GCP projects"""
+    logger.info("Fetching available GCP projects...")
+    result = run_command("gcloud projects list --format=json", check=False)
+
+    if result.returncode != 0:
+        logger.error("Failed to list GCP projects.")
+        return []
+
+    try:
+        projects = json.loads(result.stdout)
+        # Extract only the project IDs and names
+        project_list = [
+            {
+                "project_id": project.get("projectId", ""),
+                "name": project.get("name", ""),
+            }
+            for project in projects
+        ]
+        return project_list
+    except json.JSONDecodeError:
+        logger.error("Failed to parse gcloud projects output.")
+        return []
 
 
 def check_project(project_id):
@@ -132,6 +174,7 @@ def create_gke_cluster(args):
         f"--num-nodes={args.gpu_nodes}",
         f"--accelerator=type={args.gpu_type},count={args.gpus_per_node},gpu-driver-version=default",
         "--enable-autoupgrade",
+        f"--disk-size=50",
         # "--enable-autoscaling",
         f"--min-nodes={args.min_gpu_nodes}",
         f"--max-nodes={args.max_gpu_nodes}",

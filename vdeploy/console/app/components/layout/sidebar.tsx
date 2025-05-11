@@ -12,6 +12,10 @@ const navItems = [
     href: "/deployments",
   },
   {
+    title: "Clusters",
+    href: "/clusters",
+  },
+  {
     title: "Completions",
     href: "/completions",
   },

@@ -21,8 +21,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../components/ui/select";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, InfoIcon } from "lucide-react";
 import { Alert, AlertTitle, AlertDescription } from "~/components/ui/alert";
+import { useClusters } from "../lib/cluster-api";
 
 // Predefined options for select components
 const MODEL_OPTIONS = [
@@ -68,6 +69,9 @@ export default function NewDeployment() {
   const { mutate: createDeployment, isPending: isSubmitting } =
     useCreateDeployment();
   const [error, setError] = React.useState<string | null>(null);
+  
+  // Fetch available clusters
+  const { data: clusters, isLoading: isClustersLoading, error: clustersError } = useClusters();
 
   const form = useForm<DeploymentFormData>({
     defaultValues: {
@@ -84,6 +88,7 @@ export default function NewDeployment() {
       dtype: "bfloat16",
       tensor_parallel_size: 1,
       enable_chunked_prefill: false,
+      cluster_id: "no-clusters", // Use a non-empty placeholder value
     },
   });
 
@@ -105,6 +110,12 @@ export default function NewDeployment() {
     // Validate form data
     if (!data.release_name || !data.namespace) {
       setError("Release name and namespace are required");
+      return;
+    }
+
+    // Check if a valid cluster is selected (not the placeholder)
+    if (!data.cluster_id || data.cluster_id === "no-clusters") {
+      setError("Please select a cluster for deployment");
       return;
     }
 
@@ -159,6 +170,45 @@ export default function NewDeployment() {
 
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+          {/* Cluster Selection Dropdown */}
+          <FormField
+            control={form.control}
+            name="cluster_id"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Target Cluster</FormLabel>
+                <FormControl>
+                  <Select
+                    onValueChange={field.onChange}
+                    defaultValue={field.value}
+                    disabled={isClustersLoading}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select a cluster for deployment" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {clusters && clusters.length > 0 ? (
+                        clusters.map((cluster) => (
+                          <SelectItem key={cluster.cluster_id} value={cluster.cluster_id}>
+                            {cluster.cluster_name} ({cluster.zone})
+                          </SelectItem>
+                        ))
+                      ) : (
+                        <SelectItem value="no-clusters" disabled>
+                          {isClustersLoading ? "Loading clusters..." : "No clusters available"}
+                        </SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
+                </FormControl>
+                <FormDescription>
+                  Select the Kubernetes cluster where this model will be deployed
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
           <FormField
             control={form.control}
             name="model_path"
