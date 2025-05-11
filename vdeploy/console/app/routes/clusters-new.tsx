@@ -59,9 +59,9 @@ const MACHINE_TYPE_OPTIONS = [
 ];
 
 const GPU_MACHINE_TYPE_OPTIONS = [
-  { value: "n1-standard-8", label: "n1-standard-8 (8 vCPU, 30GB memory)" },
-  { value: "n1-standard-16", label: "n1-standard-16 (16 vCPU, 60GB memory)" },
-  { value: "n1-standard-32", label: "n1-standard-32 (32 vCPU, 120GB memory)" },
+  { value: "g2-standard-8", label: "g2-standard-8 (8 vCPU, 30GB memory)" },
+  { value: "g2-standard-16", label: "g2-standard-16 (16 vCPU, 60GB memory)" },
+  { value: "g2-standard-32", label: "g2-standard-32 (32 vCPU, 120GB memory)" },
 ];
 
 // This interface is now imported from cluster-api.ts

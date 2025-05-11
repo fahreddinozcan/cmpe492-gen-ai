@@ -38,7 +38,7 @@ export interface Deployment {
 export interface DeploymentFormData {
   model_path: string;
   release_name: string;
-  namespace: string;
+  // namespace field removed - using release_name as namespace
   hf_token: string;
   gpu_type: string;
   cpu_count: number;
@@ -88,6 +88,26 @@ export interface ChatResponse {
   };
 }
 
+export interface MetricsResponse {
+  success: boolean;
+  message: string;
+  metrics?: {
+    status: string;
+    data: {
+      resultType: string;
+      result: {
+        metric: {
+          __name__: string;
+          pod: string;
+          namespace: string;
+          [key: string]: string;
+        };
+        value: [number, string];
+      }[];
+    };
+  };
+}
+
 // API functions
 const apiClient = {
   // Deployments
@@ -116,12 +136,15 @@ const apiClient = {
   },
 
   async createDeployment(data: DeploymentFormData): Promise<Deployment> {
+    // Set namespace to the same value as release_name
+    const requestData = { ...data, namespace: data.release_name };
+    
     const response = await fetch(`${API_BASE_URL}/deployments/`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(data),
+      body: JSON.stringify(requestData),
     });
     if (!response.ok) {
       throw new Error(`Failed to create deployment: ${response.statusText}`);
@@ -186,7 +209,7 @@ const apiClient = {
 
   // Send a chat message to the deployed model using the backend proxy
   async sendChatMessage(deploymentId: string, messages: ChatMessage[], options: { max_tokens?: number, temperature?: number } = {}): Promise<ChatResponse> {
-    // Check if the deployment exists and is ready
+    // Check if the deployment is ready first
     const deployment = await this.getDeployment(deploymentId);
 
     if (!deployment.ready) {
@@ -221,6 +244,30 @@ const apiClient = {
       return response.json();
     } catch (error) {
       console.error('Error sending chat message:', error);
+      throw error;
+    }
+  },
+  
+  async getDeploymentMetrics(deploymentId: string, metricName?: string): Promise<MetricsResponse> {
+    const url = new URL(`${API_BASE_URL}/deployments/${deploymentId}/metrics`);
+    
+    if (metricName) {
+      url.searchParams.append('metric_name', metricName);
+    }
+    
+    console.log(`Fetching metrics from: ${url.toString()}`);
+    
+    try {
+      const response = await fetch(url.toString());
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to fetch metrics (${response.status}): ${errorText}`);
+      }
+      
+      return response.json();
+    } catch (error) {
+      console.error('Error fetching deployment metrics:', error);
       throw error;
     }
   }
@@ -319,6 +366,16 @@ export function useSendChatMessage() {
       messages: ChatMessage[],
       options?: { max_tokens?: number, temperature?: number }
     }) => apiClient.sendChatMessage(deploymentId, messages, options),
+  });
+}
+
+// React Query hook for fetching deployment metrics
+export function useDeploymentMetrics(deploymentId: string | undefined, metricName?: string) {
+  return useQuery({
+    queryKey: ['deployment-metrics', deploymentId, metricName],
+    queryFn: () => deploymentId ? apiClient.getDeploymentMetrics(deploymentId, metricName) : Promise.reject('No deployment ID provided'),
+    enabled: !!deploymentId,
+    refetchInterval: 10000, // Refresh every 10 seconds
   });
 }
 

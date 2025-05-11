@@ -3,7 +3,7 @@ import json
 import time
 import sys
 import argparse
-from parser import modify_parser
+from .parser import modify_parser
 import subprocess
 
 logging.basicConfig(
@@ -174,7 +174,7 @@ def create_gke_cluster(args):
         f"--num-nodes={args.gpu_nodes}",
         f"--accelerator=type={args.gpu_type},count={args.gpus_per_node},gpu-driver-version=default",
         "--enable-autoupgrade",
-        f"--disk-size=50",
+        f"--disk-size=100",
         # "--enable-autoscaling",
         f"--min-nodes={args.min_gpu_nodes}",
         f"--max-nodes={args.max_gpu_nodes}",

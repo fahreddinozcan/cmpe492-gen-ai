@@ -77,7 +77,7 @@ export default function NewDeployment() {
     defaultValues: {
       model_path: "google/gemma-1.1-2b-it",
       release_name: "gemma-test",
-      namespace: "vllm",
+      // namespace removed (using release_name as namespace)
       gpu_type: "nvidia-l4",
       cpu_count: 2,
       memory: "8Gi",
@@ -108,8 +108,8 @@ export default function NewDeployment() {
     setError(null);
 
     // Validate form data
-    if (!data.release_name || !data.namespace) {
-      setError("Release name and namespace are required");
+    if (!data.release_name) {
+      setError("Release name is required");
       return;
     }
 
@@ -131,11 +131,13 @@ export default function NewDeployment() {
       createDeployment(data, {
         onSuccess: (response) => {
           // Redirect to the deployment progress page with the deployment ID
-          const deploymentId =
-            response.id ||
-            response.deployment_id ||
-            `${data.namespace}-${data.release_name}`;
-          navigate(`/deployment-progress/${deploymentId}`);
+          const deploymentId = response.deployment_id || response.id;
+          if (deploymentId) {
+            navigate(`/deployment-progress/${deploymentId}`);
+          } else {
+            console.error("No deployment ID returned from API");
+            setError("Failed to get deployment ID from server response");
+          }
         },
         onError: (error) => {
           console.error("Error creating deployment:", error);
@@ -254,19 +256,7 @@ export default function NewDeployment() {
             )}
           />
 
-          <FormField
-            control={form.control}
-            name="namespace"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Namespace</FormLabel>
-                <FormControl>
-                  <Input {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+          {/* Namespace field removed - using release name as namespace */}
 
           <FormField
             control={form.control}

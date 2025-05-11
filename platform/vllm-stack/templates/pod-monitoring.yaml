@@ -1,0 +1,22 @@
+{{- if .Values.gcpManagedPrometheus.enabled }}
+apiVersion: monitoring.googleapis.com/v1
+kind: PodMonitoring
+metadata:
+  name: {{ .Release.Name }}-pod-monitoring
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Release.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/part-of: google-cloud-managed-prometheus
+spec:
+  endpoints:
+    - port: {{ .Values.servingEngineSpec.containerPort }}
+      scheme: http
+      interval: {{ .Values.gcpManagedPrometheus.scrapeInterval }}
+      path: /metrics
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Release.Name }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      component: vllm
+{{- end }}

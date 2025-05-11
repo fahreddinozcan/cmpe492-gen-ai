@@ -1,4 +1,5 @@
 "use client";
+
 import { useParams, Link } from "react-router-dom";
 import { Button } from "../components/ui/button";
 import {
@@ -9,7 +10,9 @@ import {
   useVLLMPodLogs,
   useCheckDeploymentReadyForChat,
   useSendChatMessage,
+  useDeploymentMetrics,
   type ChatMessage,
+  type MetricsResponse,
 } from "~/lib/api";
 import React from "react";
 
@@ -70,8 +73,8 @@ export default function DeploymentDetail() {
   const { mutate: deleteDeployment, isPending: isDeleting } =
     useDeleteDeployment();
 
-  // State for chat tab
-  const [activeTab, setActiveTab] = React.useState("details"); // 'details' or 'chat'
+  // State for tabs
+  const [activeTab, setActiveTab] = React.useState("details"); // 'details', 'chat', or 'analytics'
   const [chatMessages, setChatMessages] = React.useState<
     Array<{ role: string; content: string }>
   >([]);
@@ -92,6 +95,22 @@ export default function DeploymentDetail() {
   // Get the send chat message mutation
   const { mutate: sendChatToLLM, isPending: isSendingToLLM } =
     useSendChatMessage();
+
+  // Get metrics data for analytics tab
+  const { data: gpuMetrics, isLoading: isLoadingGpuMetrics } =
+    useDeploymentMetrics(id, "gpu_utilization");
+
+  const { data: memoryMetrics, isLoading: isLoadingMemoryMetrics } =
+    useDeploymentMetrics(id, "memory_usage");
+
+  const { data: cpuMetrics, isLoading: isLoadingCpuMetrics } =
+    useDeploymentMetrics(id, "cpu_usage");
+
+  const { data: requestCountMetrics, isLoading: isLoadingRequestCountMetrics } =
+    useDeploymentMetrics(id, "request_count");
+
+  const { data: latencyMetrics, isLoading: isLoadingLatencyMetrics } =
+    useDeploymentMetrics(id, "request_latency");
 
   // Check if the model is ready when the chat tab is activated
   React.useEffect(() => {
@@ -257,18 +276,14 @@ export default function DeploymentDetail() {
 
   // Handle delete deployment
   const handleDeleteDeployment = () => {
-    if (
-      !id ||
-      !window.confirm("Are you sure you want to delete this deployment?")
-    )
-      return;
+    if (!id) return;
     deleteDeployment(id);
-    window.location.href = "/deployments";
+    // window.location.href = "/deployments";
   };
 
   // Redirect if no ID
   if (!id) {
-    window.location.href = "/deployments";
+    // window.location.href = "/deployments";
     return <div>Redirecting...</div>;
   }
 
@@ -367,30 +382,209 @@ export default function DeploymentDetail() {
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-gray-700 mb-6">
+      <div className="flex border-b border-gray-700 mb-4">
         <button
-          className={`px-4 py-2 font-medium ${
-            activeTab === "details"
-              ? "text-blue-500 border-b-2 border-blue-500"
-              : "text-gray-400 hover:text-gray-300"
-          }`}
           onClick={() => setActiveTab("details")}
+          className={`px-4 py-2 ${
+            activeTab === "details"
+              ? "border-b-2 border-blue-500 text-blue-500"
+              : "text-gray-400"
+          }`}
         >
-          Deployment Details
+          Details
         </button>
         <button
-          className={`px-4 py-2 font-medium ${
-            activeTab === "chat"
-              ? "text-blue-500 border-b-2 border-blue-500"
-              : "text-gray-400 hover:text-gray-300"
-          }`}
           onClick={() => setActiveTab("chat")}
+          className={`px-4 py-2 ${
+            activeTab === "chat"
+              ? "border-b-2 border-blue-500 text-blue-500"
+              : "text-gray-400"
+          }`}
         >
           Chat with Model
         </button>
+        <button
+          onClick={() => setActiveTab("analytics")}
+          className={`px-4 py-2 ${
+            activeTab === "analytics"
+              ? "border-b-2 border-blue-500 text-blue-500"
+              : "text-gray-400"
+          }`}
+        >
+          Analytics
+        </button>
       </div>
 
-      {activeTab === "details" ? (
+      {activeTab === "analytics" ? (
+        // Analytics tab content
+        <div className="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden p-4">
+          <h3 className="text-xl font-semibold mb-4">Deployment Analytics</h3>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* GPU Utilization Metric */}
+            <div className="bg-gray-900 p-4 rounded-lg">
+              <h4 className="text-lg font-medium mb-2">GPU Utilization</h4>
+              {isLoadingGpuMetrics ? (
+                <div className="flex justify-center items-center h-32">
+                  <p className="text-gray-400">Loading metrics...</p>
+                </div>
+              ) : gpuMetrics?.success &&
+                gpuMetrics?.metrics?.data?.result?.length > 0 ? (
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-gray-400">Current:</span>
+                    <span className="text-2xl font-bold">
+                      {parseFloat(
+                        gpuMetrics?.metrics?.data?.result?.[0]?.value?.[1] ||
+                          "0"
+                      ).toFixed(1)}
+                      %
+                    </span>
+                  </div>
+                  <div className="w-full bg-gray-700 rounded-full h-4 mb-4">
+                    <div
+                      className="bg-green-500 h-4 rounded-full"
+                      style={{
+                        width: `${Math.min(
+                          parseFloat(
+                            gpuMetrics?.metrics?.data?.result?.[0]
+                              ?.value?.[1] || "0"
+                          ),
+                          100
+                        )}%`,
+                      }}
+                    ></div>
+                  </div>
+                  <div className="text-xs text-gray-400">
+                    Pod:{" "}
+                    {gpuMetrics?.metrics?.data?.result?.[0]?.metric?.pod ||
+                      "unknown"}
+                  </div>
+                </div>
+              ) : (
+                <div className="flex justify-center items-center h-32">
+                  <p className="text-gray-400">No GPU metrics available</p>
+                </div>
+              )}
+            </div>
+
+            {/* Memory Usage Metric */}
+            <div className="bg-gray-900 p-4 rounded-lg">
+              <h4 className="text-lg font-medium mb-2">Memory Usage</h4>
+              {isLoadingMemoryMetrics ? (
+                <div className="flex justify-center items-center h-32">
+                  <p className="text-gray-400">Loading metrics...</p>
+                </div>
+              ) : memoryMetrics?.success &&
+                memoryMetrics?.metrics?.data?.result?.length > 0 ? (
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-gray-400">Current:</span>
+                    <span className="text-2xl font-bold">
+                      {(
+                        parseInt(
+                          memoryMetrics?.metrics?.data?.result?.[0]
+                            ?.value?.[1] || "0"
+                        ) /
+                        (1024 * 1024 * 1024)
+                      ).toFixed(2)}{" "}
+                      GB
+                    </span>
+                  </div>
+                  <div className="text-xs text-gray-400 mt-4">
+                    Pod:{" "}
+                    {memoryMetrics?.metrics?.data?.result?.[0]?.metric?.pod ||
+                      "unknown"}
+                  </div>
+                </div>
+              ) : (
+                <div className="flex justify-center items-center h-32">
+                  <p className="text-gray-400">No memory metrics available</p>
+                </div>
+              )}
+            </div>
+
+            {/* CPU Usage Metric */}
+            <div className="bg-gray-900 p-4 rounded-lg">
+              <h4 className="text-lg font-medium mb-2">CPU Usage</h4>
+              {isLoadingCpuMetrics ? (
+                <div className="flex justify-center items-center h-32">
+                  <p className="text-gray-400">Loading metrics...</p>
+                </div>
+              ) : cpuMetrics?.success &&
+                cpuMetrics?.metrics?.data?.result?.length > 0 ? (
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-gray-400">Current:</span>
+                    <span className="text-2xl font-bold">
+                      {parseFloat(
+                        cpuMetrics?.metrics?.data?.result?.[0]?.value?.[1] ||
+                          "0"
+                      ).toFixed(2)}{" "}
+                      cores
+                    </span>
+                  </div>
+                  <div className="text-xs text-gray-400 mt-4">
+                    Pod:{" "}
+                    {cpuMetrics?.metrics?.data?.result?.[0]?.metric?.pod ||
+                      "unknown"}
+                  </div>
+                </div>
+              ) : (
+                <div className="flex justify-center items-center h-32">
+                  <p className="text-gray-400">No CPU metrics available</p>
+                </div>
+              )}
+            </div>
+
+            {/* Request Count Metric */}
+            <div className="bg-gray-900 p-4 rounded-lg">
+              <h4 className="text-lg font-medium mb-2">Total Requests</h4>
+              {isLoadingRequestCountMetrics ? (
+                <div className="flex justify-center items-center h-32">
+                  <p className="text-gray-400">Loading metrics...</p>
+                </div>
+              ) : requestCountMetrics?.success &&
+                requestCountMetrics?.metrics?.data?.result?.length > 0 ? (
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-gray-400">Total:</span>
+                    <span className="text-2xl font-bold">
+                      {parseInt(
+                        requestCountMetrics?.metrics?.data?.result?.[0]
+                          ?.value?.[1] || "0"
+                      ).toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="text-xs text-gray-400 mt-4">
+                    Pod:{" "}
+                    {requestCountMetrics?.metrics?.data?.result?.[0]?.metric
+                      ?.pod || "unknown"}
+                  </div>
+                </div>
+              ) : (
+                <div className="flex justify-center items-center h-32">
+                  <p className="text-gray-400">
+                    No request count metrics available
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="mt-4 text-sm text-gray-400">
+            <p>
+              Metrics are provided by Google Cloud Managed Prometheus. Data
+              refreshes every 10 seconds.
+            </p>
+            <p className="mt-2">
+              Note: Some metrics may not be available until the deployment has
+              processed requests.
+            </p>
+          </div>
+        </div>
+      ) : activeTab === "details" ? (
+        // Details tab content
         <>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
             <div className="bg-gray-800 shadow rounded-lg p-6">

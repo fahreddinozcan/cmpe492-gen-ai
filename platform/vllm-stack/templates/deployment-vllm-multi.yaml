@@ -20,6 +20,10 @@ spec:
       labels:
         model: {{ $modelSpec.name }}
       {{- include "chart.engineLabels" . | nindent 8 }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "{{ include "chart.container-port" . }}"
+        prometheus.io/path: "/metrics"
     spec:
       {{- if hasKey $modelSpec "initContainer" }}
       {{- $container := $modelSpec.initContainer }}

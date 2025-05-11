@@ -1,6 +1,13 @@
 # -- Default values for llmstack helm chart
 # -- Declare variables to be passed into your templates.
 
+# -- Google Cloud Managed Prometheus configuration
+gcpManagedPrometheus:
+  # -- Enable GCP Managed Prometheus
+  enabled: true
+  # -- Scrape interval in seconds
+  scrapeInterval: "10s"
+
 # -- Serving engine configuratoon
 servingEngineSpec:
   # -- Customized labels for the serving engine deployment

@@ -9,23 +9,21 @@ from .generate_values import generate_values
 logger = logging.getLogger("vllm-deploy")
 
 
-def create_namespace_if_not_exists(namespace, stream_output=False):
+def create_namespace_if_not_exists(namespace):
     """
     Create K8s namespace if it doesn't exist
 
     Args:
         namespace: Kubernetes namespace
-        stream_output: Whether to stream command output
     """
     result = run_command(
-        f"kubectl get namespace {namespace}", check=False, stream_output=stream_output
+        f"kubectl get namespace {namespace}",
+        check=False,
     )
 
     if result.returncode != 0:
         logger.info(f"Creating namespace {namespace}")
-        run_command(
-            f"kubectl create namespace {namespace}", stream_output=stream_output
-        )
+        run_command(f"kubectl create namespace {namespace}")
     else:
         logger.info(f"Namespace {namespace} already exists")
 
@@ -45,7 +43,9 @@ def deploy_vllm(args):
         logger.error("Model path is required for deployment")
         return False
 
-    # create_namespace_if_not_exists(args.namespace)
+    # Explicitly create the namespace first to ensure it exists
+    logger.info(f"Creating namespace {args.release_name} if it doesn't exist")
+    create_namespace_if_not_exists(args.release_name)
 
     values_file = generate_values(args)
 
@@ -57,7 +57,7 @@ def deploy_vllm(args):
 
     helm_cmd = (
         f"helm upgrade --install --create-namespace "
-        f"--namespace={args.namespace} {args.release_name} "
+        f"--namespace={args.release_name} {args.release_name} "
         f"{args.chart_path} -f {values_file} {additional_args}"
     )
 
@@ -67,12 +67,12 @@ def deploy_vllm(args):
     os.unlink(values_file)
 
     logger.info(
-        f"Deployment complete. Service available at: {args.release_name}.{args.namespace}.svc.cluster.local"
+        f"Deployment complete. Service available at: {args.release_name}.{args.release_name}.svc.cluster.local"
     )
 
     logger.info(f"To test the deployment:")
     logger.info(
-        f"  kubectl port-forward -n {args.namespace} svc/{args.release_name}-router-service 8000:80"
+        f"  kubectl port-forward -n {args.release_name} svc/{args.release_name}-router-service 8000:80"
     )
     logger.info(
         f'  curl http://localhost:8000/v1/completions -H "Content-Type: application/json" -d \'{{\n'
@@ -98,10 +98,10 @@ def delete_deployment(args):
     """
     try:
         # Note: --purge flag is not needed in Helm 3+, it's the default behavior
-        helm_cmd = f"helm uninstall {args.release_name} --namespace={args.namespace}"
+        helm_cmd = f"helm uninstall {args.release_name} --namespace={args.release_name}"
 
         logger.info(
-            f"Deleting vLLM deployment {args.release_name} in namespace {args.namespace}..."
+            f"Deleting vLLM deployment {args.release_name} in namespace {args.release_name}..."
         )
         result = run_command(helm_cmd)
 
@@ -130,7 +130,9 @@ def list_deployments(args):
     try:
         # Build helm command
         namespace_flag = (
-            f"--namespace={args.namespace}" if args.namespace else "--all-namespaces"
+            f"--namespace={args.release_name}"
+            if args.release_name
+            else "--all-namespaces"
         )
         helm_cmd = f"helm list {namespace_flag} -o json"
 
