@@ -108,6 +108,22 @@ export interface MetricsResponse {
   };
 }
 
+export interface CloudMetricsResponse {
+  success: boolean;
+  message: string;
+  metrics?: {
+    [key: string]: {
+      value: number;
+      timestamp: number;
+      labels?: Record<string, string>;
+      values?: [number, string][];
+      error?: string;
+      info?: string;
+    };
+  };
+  timestamp: string;
+}
+
 // API functions
 const apiClient = {
   // Deployments
@@ -270,6 +286,38 @@ const apiClient = {
       console.error('Error fetching deployment metrics:', error);
       throw error;
     }
+  },
+  
+  async getCloudMetrics(namespace: string, releaseName: string, metricNames: string[] = ['tokens_total'], useRangeQuery: boolean = true, timeRangeMinutes: number = 120): Promise<CloudMetricsResponse> {
+    const url = `${API_BASE_URL}/api/deployments/metrics/cloud`;
+    
+    console.log(`Fetching cloud metrics for ${releaseName} in ${namespace}`);
+    
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          namespace,
+          release_name: releaseName,
+          metric_names: metricNames,
+          use_range_query: useRangeQuery,
+          time_range_minutes: timeRangeMinutes
+        }),
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to fetch cloud metrics (${response.status}): ${errorText}`);
+      }
+      
+      return response.json();
+    } catch (error) {
+      console.error('Error fetching cloud metrics:', error);
+      throw error;
+    }
   }
 };
 
@@ -376,6 +424,27 @@ export function useDeploymentMetrics(deploymentId: string | undefined, metricNam
     queryFn: () => deploymentId ? apiClient.getDeploymentMetrics(deploymentId, metricName) : Promise.reject('No deployment ID provided'),
     enabled: !!deploymentId,
     refetchInterval: 10000, // Refresh every 10 seconds
+  });
+}
+
+// React Query hook for fetching cloud metrics
+export function useCloudMetrics(deployment: Deployment | undefined, metricNames: string[] = ['tokens_total'], useRangeQuery: boolean = true, timeRangeMinutes: number = 120) {
+  return useQuery({
+    queryKey: ['cloud-metrics', deployment?.namespace, deployment?.name, metricNames, useRangeQuery, timeRangeMinutes],
+    queryFn: () => {
+      if (!deployment?.namespace || !deployment?.name) {
+        return Promise.reject('No deployment namespace or name provided');
+      }
+      return apiClient.getCloudMetrics(
+        deployment.namespace,
+        deployment.name,
+        metricNames,
+        useRangeQuery,
+        timeRangeMinutes
+      );
+    },
+    enabled: !!deployment?.namespace && !!deployment?.name,
+    refetchInterval: 30000, // Refresh every 30 seconds
   });
 }
 

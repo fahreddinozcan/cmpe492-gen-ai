@@ -21,7 +21,7 @@ import {
 } from "../components/ui/select";
 import { Checkbox } from "../components/ui";
 import { useToast } from "../components/ui/use-toast";
-import { AlertCircle, Loader2, RefreshCw, Terminal } from "lucide-react";
+import { AlertCircle, Check, CheckCircle, Circle, Clock, Loader2, RefreshCw, Terminal } from "lucide-react";
 import { Alert, AlertTitle, AlertDescription } from "../components/ui/alert";
 import {
   Card,
@@ -71,37 +71,77 @@ interface LogDisplayProps {
   clusterId: string | undefined;
 }
 
-// Log Display Component for terminal output
-function LogDisplay({ clusterId }: LogDisplayProps) {
-  const { logs, isConnected, error, reconnect } = useClusterLogs(clusterId);
+// Define the cluster creation stages and their descriptions
+const CLUSTER_STAGES = [
+  {
+    id: "pending",
+    label: "Cluster Creation Initiated",
+    description: "Cluster creation request has been submitted",
+  },
+  {
+    id: "project_verification",
+    label: "Project Verification",
+    description: "Verifying project access and enabling required APIs",
+  },
+  {
+    id: "creating_cluster",
+    label: "Creating GKE Cluster",
+    description: "Setting up the standard node pool and cluster infrastructure",
+  },
+  {
+    id: "adding_gpu",
+    label: "Adding GPU Node Pool",
+    description: "Configuring GPU nodes for machine learning workloads",
+  },
+  {
+    id: "running",
+    label: "Cluster Ready",
+    description: "The cluster is now running and ready to use",
+  },
+];
 
-  // Auto-scroll to bottom when new logs arrive
-  const logContainerRef = React.useRef<HTMLDivElement>(null);
-
-  React.useEffect(() => {
-    if (logContainerRef.current) {
-      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
-    }
-  }, [logs]);
-
-  if (!clusterId) {
-    return (
-      <div className="p-4 text-center text-gray-500">
-        <p>No cluster logs available</p>
-      </div>
-    );
+// Map progress percentage to stage
+function mapProgressToStage(progress: number, status: string): string {
+  if (status?.toLowerCase().includes('error') || status?.toLowerCase().includes('fail')) {
+    return "failed";
   }
+  
+  if (progress < 10) return "pending";
+  if (progress < 30) return "pending";
+  if (progress < 40) return "project_verification";
+  if (progress < 50) return "creating_cluster";
+  if (progress < 100) return "adding_gpu";
+  return "running";
+}
+
+// Cluster Creation Progress Component
+function LogDisplay({ clusterId }: LogDisplayProps) {
+  const { logs, isLoading, error, refreshLogs, clusterInfo, progress } = useClusterLogs(clusterId);
+  const [currentStage, setCurrentStage] = React.useState<string>("pending");
+  
+  // Update current stage based on progress
+  React.useEffect(() => {
+    if (clusterInfo) {
+      const stage = mapProgressToStage(progress, clusterInfo.status);
+      setCurrentStage(stage);
+    }
+  }, [clusterInfo, progress]);
 
   return (
     <div className="relative">
-      {!isConnected && (
-        <div className="absolute top-0 right-0 m-2">
-          <Button variant="outline" size="sm" onClick={reconnect}>
-            <RefreshCw className="h-4 w-4 mr-2" />
-            Reconnect
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-xl font-bold">Cluster Creation Progress</h2>
+        <div>
+          <Button variant="outline" size="sm" onClick={refreshLogs} disabled={isLoading}>
+            {isLoading ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4 mr-2" />
+            )}
+            Refresh
           </Button>
         </div>
-      )}
+      </div>
 
       {error && (
         <Alert variant="destructive" className="mb-4">
@@ -111,40 +151,80 @@ function LogDisplay({ clusterId }: LogDisplayProps) {
         </Alert>
       )}
 
-      <div
-        ref={logContainerRef}
-        className="bg-black text-green-400 p-4 rounded-md font-mono text-sm overflow-auto"
-        style={{ height: "400px" }}
-      >
-        {logs.length === 0 ? (
-          <div className="flex items-center justify-center h-full">
-            <p className="text-gray-400">
-              {isConnected
-                ? "Waiting for logs..."
-                : "Not connected to log stream"}
+      {clusterInfo && (
+        <div className="bg-muted/20 p-3 rounded-md mb-6 flex justify-between items-center">
+          <div>
+            <p className="text-sm">
+              <span className="font-medium">Cluster:</span> {clusterInfo.cluster_name}
+            </p>
+            <p className="text-sm">
+              <span className="font-medium">Project:</span> {clusterInfo.project_id}
             </p>
           </div>
-        ) : (
-          logs.map((log, i) => (
-            <div key={i} className="pb-1">
-              {log.timestamp && (
-                <span className="text-gray-500 mr-2">[{log.timestamp}]</span>
-              )}
-              {log.level && (
-                <span
-                  className={`mr-2 ${
-                    log.level.toLowerCase().includes("error")
-                      ? "text-red-400"
-                      : ""
-                  }`}
-                >
-                  {log.level}
-                </span>
-              )}
-              <span>{log.message}</span>
+          <div>
+            <p className="text-sm">
+              <span className="font-medium">Status:</span>{" "}
+              <span className={clusterInfo.status === "RUNNING" ? "text-green-600" : 
+                clusterInfo.status === "ERROR" ? "text-red-600" : "text-blue-600"}>
+                {clusterInfo.status}
+              </span>
+            </p>
+            {progress > 0 && progress < 100 && (
+              <p className="text-sm">
+                <span className="font-medium">Progress:</span> {progress}%
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="space-y-6">
+        {CLUSTER_STAGES.map((stage, index) => {
+          const currentStageIndex = CLUSTER_STAGES.findIndex(s => s.id === currentStage);
+          let status: "complete" | "current" | "upcoming" | "failed" = "upcoming";
+          
+          if (index < currentStageIndex) {
+            status = "complete";
+          } else if (index === currentStageIndex) {
+            status = clusterInfo?.status === "ERROR" ? "failed" : "current";
+          }
+          
+          return (
+            <div 
+              key={stage.id}
+              className={`flex items-start ${status === "upcoming" ? "opacity-50" : ""}`}
+            >
+              <div className="mr-4 mt-1">
+                {status === "complete" && (
+                  <CheckCircle className="h-6 w-6 text-green-500" />
+                )}
+                {status === "current" && (
+                  <Clock className="h-6 w-6 text-primary animate-pulse" />
+                )}
+                {status === "failed" && (
+                  <AlertCircle className="h-6 w-6 text-destructive" />
+                )}
+                {status === "upcoming" && (
+                  <Circle className="h-6 w-6 text-muted-foreground" />
+                )}
+              </div>
+              <div className="flex-1">
+                <div className="flex items-center">
+                  <h3 className="font-medium">{stage.label}</h3>
+                  {status === "current" && (
+                    <span className="ml-2 text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">
+                      In Progress
+                    </span>
+                  )}
+                </div>
+                <p className="text-sm text-muted-foreground">{stage.description}</p>
+                {index < CLUSTER_STAGES.length - 1 && (
+                  <div className="h-6 border-l border-dashed border-muted ml-3 mt-1"></div>
+                )}
+              </div>
             </div>
-          ))
-        )}
+          );
+        })}
       </div>
     </div>
   );
@@ -239,34 +319,33 @@ export default function NewCluster() {
     }
   }, [clusterResponse, clusterId]);
 
-  function onSubmit(data: ClusterFormData) {
-    // Call the React Query mutation
-    createCluster(data, {
-      onSuccess: (response) => {
-        toast({
-          title: "Cluster creation started",
-          description: `Creating cluster ${data.cluster_name} in ${data.zone}`,
-        });
-
-        // Store the cluster ID for logs display
-        if (response.cluster_id) {
-          setClusterId(response.cluster_id);
-          setShowLogs(true);
-        } else {
-          // If no cluster ID received, redirect to clusters page
-          navigate("/clusters");
-        }
-      },
-      onError: (error) => {
-        toast({
-          title: "Failed to create cluster",
-          description:
-            error instanceof Error ? error.message : "An error occurred",
-          variant: "destructive",
-        });
-      },
-    });
-  }
+  const onSubmit = (data: ClusterFormData) => {
+    try {
+      createCluster(data, {
+        onSuccess: (response) => {
+          toast({
+            title: "Cluster creation started",
+            description: `Creating cluster ${data.cluster_name} in project ${data.project_id}`,
+          });
+          
+          // Redirect to the cluster details page
+          if (response.cluster_id) {
+            navigate(`/cluster-detail/${response.cluster_id}`);
+          }
+        },
+        onError: (error) => {
+          console.error("Error creating cluster:", error);
+          toast({
+            title: "Failed to create cluster",
+            description: error.message,
+            variant: "destructive",
+          });
+        },
+      });
+    } catch (err) {
+      console.error("Exception during cluster creation:", err);
+    }
+  };
 
   return (
     <div className="container max-w-4xl py-8">

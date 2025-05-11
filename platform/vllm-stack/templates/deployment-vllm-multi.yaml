@@ -71,8 +71,9 @@ spec:
           {{- end }}
           {{- with $modelSpec.vllmConfig }}
           {{-   if hasKey . "enableChunkedPrefill" }}
+          {{-     if .enableChunkedPrefill }}
           - "--enable-chunked-prefill"
-          - {{ .enableChunkedPrefill | quote }}
+          {{-     end }}
           {{-   end }}
           {{-   if .enablePrefixCaching }}
           - "--enable-prefix-caching"

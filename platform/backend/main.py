@@ -23,7 +23,12 @@ import re
 import threading
 import queue
 import requests
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
+import re
+
+# Google Cloud libraries
+from google.auth import default
+from google.auth.transport.requests import Request as GoogleAuthRequest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -148,6 +153,21 @@ class MetricsResponse(BaseModel):
     success: bool
     message: str
     metrics: Optional[Dict[str, Any]] = None
+    timestamp: Optional[str] = None
+
+
+class DeploymentMetricsRequest(BaseModel):
+    namespace: str = Field(..., description="Kubernetes namespace")
+    release_name: str = Field(..., description="Release name of the deployment")
+    metric_names: Optional[List[str]] = Field(
+        None, description="List of metric names to fetch"
+    )
+    time_range_minutes: Optional[int] = Field(
+        30, description="Time range in minutes for metrics query"
+    )
+    use_range_query: Optional[bool] = Field(
+        False, description="Use range query instead of instant query"
+    )
 
 
 active_deployments = {}
@@ -158,8 +178,268 @@ active_clusters = {}
 # Store cluster logs
 cluster_logs = {}
 
+# Cache for metrics to avoid too frequent requests
+metrics_cache = {}
+
 # Log queue for WebSocket connections
 log_queue = {}
+
+
+def parse_prometheus_metrics(metrics_text: str) -> Dict[str, Any]:
+    """
+    Parse Prometheus metrics format into a structured dictionary
+
+    Example input:
+    # HELP vllm_request_success_count Number of successful requests
+    # TYPE vllm_request_success_count counter
+    vllm_request_success_count 42
+
+    Example output:
+    {
+        "vllm_request_success_count": {
+            "value": 42.0,
+            "help": "Number of successful requests",
+            "type": "counter"
+        }
+    }
+    """
+    result = {}
+    current_metric = None
+    current_help = None
+    current_type = None
+
+    for line in metrics_text.split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+
+        # Parse HELP comments
+        if line.startswith("# HELP "):
+            parts = line[len("# HELP ") :].split(" ", 1)
+            if len(parts) == 2:
+                metric_name, help_text = parts
+                current_metric = metric_name
+                current_help = help_text
+
+        # Parse TYPE comments
+        elif line.startswith("# TYPE "):
+            parts = line[len("# TYPE ") :].split(" ", 1)
+            if len(parts) == 2:
+                metric_name, type_text = parts
+                current_metric = metric_name
+                current_type = type_text
+
+        # Parse actual metric values
+        elif not line.startswith("#"):
+            # Handle metrics with labels
+            if "{" in line:
+                metric_with_labels, value_str = line.rsplit(" ", 1)
+                metric_name = metric_with_labels.split("{")[0]
+
+                # Extract labels
+                labels_str = metric_with_labels.split("{")[1].split("}")[0]
+                labels = {}
+                for label_pair in labels_str.split(","):
+                    if "=" in label_pair:
+                        k, v = label_pair.split("=", 1)
+                        labels[k] = v.strip('"')
+
+                # Create a unique key for this metric with its labels
+                label_key = json.dumps(labels, sort_keys=True)
+                full_key = f"{metric_name}[{label_key}]"
+
+                try:
+                    result[full_key] = {"value": float(value_str), "labels": labels}
+                    if current_help:
+                        result[full_key]["help"] = current_help
+                    if current_type:
+                        result[full_key]["type"] = current_type
+                except ValueError:
+                    # Skip metrics with non-numeric values
+                    pass
+            else:
+                # Simple metrics without labels
+                parts = line.split(" ")
+                if len(parts) >= 2:
+                    metric_name = parts[0]
+                    try:
+                        value = float(parts[1])
+                        result[metric_name] = {"value": value}
+                        if current_help:
+                            result[metric_name]["help"] = current_help
+                        if current_type:
+                            result[metric_name]["type"] = current_type
+                    except ValueError:
+                        # Skip metrics with non-numeric values
+                        pass
+
+    return result
+
+
+async def fetch_deployment_metrics(namespace: str, release_name: str) -> Dict[str, Any]:
+    """
+    Fetch metrics for a specific deployment
+
+    First tries to get the service URL, then fetches metrics from the /metrics endpoint
+    """
+    try:
+        # Get the service URL
+        service_cmd = f"kubectl get svc -n {namespace} -l release={release_name} -o jsonpath='{{.items[0].status.loadBalancer.ingress[0].ip}}'"
+        result = await asyncio.to_thread(
+            lambda: subprocess.run(
+                service_cmd, shell=True, text=True, capture_output=True
+            )
+        )
+
+        if result.returncode != 0 or not result.stdout.strip():
+            # Try to port-forward to the service
+            logger.info(
+                f"No external IP found for {release_name}, trying to port-forward"
+            )
+
+            # Get the pod name
+            pod_cmd = f"kubectl get pods -n {namespace} -l release={release_name} -o jsonpath='{{.items[0].metadata.name}}'"
+            pod_result = await asyncio.to_thread(
+                lambda: subprocess.run(
+                    pod_cmd, shell=True, text=True, capture_output=True
+                )
+            )
+
+            if pod_result.returncode != 0 or not pod_result.stdout.strip():
+                return {
+                    "error": f"Failed to find pods for {release_name}: {pod_result.stderr}"
+                }
+
+            pod_name = pod_result.stdout.strip()
+
+            # Port-forward to the pod
+            port = 8000  # Default vLLM port
+            port_forward_cmd = (
+                f"kubectl port-forward -n {namespace} {pod_name} {port}:{port}"
+            )
+
+            # Start port-forwarding in the background
+            port_forward_process = await asyncio.create_subprocess_shell(
+                port_forward_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+
+            # Give it a moment to establish the connection
+            await asyncio.sleep(2)
+
+            try:
+                # Fetch metrics from the forwarded port
+                metrics_url = f"http://localhost:{port}/metrics"
+                response = await asyncio.to_thread(
+                    lambda: requests.get(metrics_url, timeout=5)
+                )
+
+                if response.status_code == 200:
+                    metrics = parse_prometheus_metrics(response.text)
+
+                    # Add summary metrics
+                    summary = calculate_summary_metrics(metrics)
+
+                    return {"metrics": metrics, "summary": summary}
+                else:
+                    return {
+                        "error": f"Failed to fetch metrics: HTTP {response.status_code}"
+                    }
+            finally:
+                # Clean up the port-forwarding process
+                try:
+                    port_forward_process.terminate()
+                    await port_forward_process.wait()
+                except Exception as e:
+                    logger.error(f"Error terminating port-forward: {str(e)}")
+        else:
+            # We have an external IP, use it directly
+            external_ip = result.stdout.strip()
+            metrics_url = f"http://{external_ip}/metrics"
+
+            response = await asyncio.to_thread(
+                lambda: requests.get(metrics_url, timeout=5)
+            )
+
+            if response.status_code == 200:
+                metrics = parse_prometheus_metrics(response.text)
+
+                # Add summary metrics
+                summary = calculate_summary_metrics(metrics)
+
+                return {"metrics": metrics, "summary": summary}
+            else:
+                return {
+                    "error": f"Failed to fetch metrics: HTTP {response.status_code}"
+                }
+    except Exception as e:
+        logger.error(f"Error fetching metrics: {str(e)}")
+        return {"error": f"Error fetching metrics: {str(e)}"}
+
+
+def calculate_summary_metrics(metrics: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Calculate summary metrics from the raw metrics
+    """
+    summary = {}
+
+    # Request counts
+    success_count = 0
+    failure_count = 0
+    total_count = 0
+
+    for metric_name, metric_data in metrics.items():
+        if "vllm_request_success_count" in metric_name:
+            success_count += metric_data.get("value", 0)
+        elif "vllm_request_failure_count" in metric_name:
+            failure_count += metric_data.get("value", 0)
+        elif (
+            "vllm_request_count" in metric_name
+            and "success" not in metric_name
+            and "failure" not in metric_name
+        ):
+            total_count += metric_data.get("value", 0)
+
+    # If total_count is 0 but we have success or failure counts, use their sum
+    if total_count == 0 and (success_count > 0 or failure_count > 0):
+        total_count = success_count + failure_count
+
+    if total_count > 0:
+        summary["total_requests"] = total_count
+        summary["success_rate"] = (success_count / total_count) * 100
+
+    # Token generation
+    generated_tokens = 0
+    prompt_tokens = 0
+
+    for metric_name, metric_data in metrics.items():
+        if "vllm_generated_tokens_count" in metric_name:
+            generated_tokens += metric_data.get("value", 0)
+        elif "vllm_prompt_tokens_count" in metric_name:
+            prompt_tokens += metric_data.get("value", 0)
+
+    if generated_tokens > 0:
+        summary["generated_tokens"] = generated_tokens
+    if prompt_tokens > 0:
+        summary["prompt_tokens"] = prompt_tokens
+
+    # GPU metrics
+    gpu_memory = None
+    gpu_util = None
+
+    for metric_name, metric_data in metrics.items():
+        if "gpu_memory_used" in metric_name:
+            gpu_memory = metric_data.get("value", 0)
+        elif "gpu_utilization" in metric_name:
+            gpu_util = metric_data.get("value", 0)
+
+    if gpu_memory is not None:
+        summary["gpu_memory_used_gb"] = gpu_memory / 1024 / 1024 / 1024
+    if gpu_util is not None:
+        summary["gpu_utilization"] = gpu_util
+
+    return summary
 
 
 async def initialize_deployments():
@@ -324,6 +604,48 @@ async def initialize_deployments():
     except Exception as e:
         logger.error(f"Error initializing deployments: {str(e)}")
         logger.info("Continuing with empty deployments list")
+
+
+@app.get("/api/deployments/{deployment_id}/metrics", response_model=MetricsResponse)
+async def get_deployment_metrics(deployment_id: str):
+    """
+    Get metrics for a specific deployment
+    """
+    if deployment_id not in active_deployments:
+        raise HTTPException(status_code=404, detail="Deployment not found")
+
+    deployment = active_deployments[deployment_id]
+    namespace = deployment["namespace"]
+    release_name = deployment["release_name"]
+
+    # Check if we have recent metrics in cache (less than 10 seconds old)
+    cache_key = f"{namespace}:{release_name}"
+    current_time = datetime.now()
+
+    if cache_key in metrics_cache:
+        cache_entry = metrics_cache[cache_key]
+        cache_age = (current_time - cache_entry["timestamp"]).total_seconds()
+
+        if cache_age < 10:  # Use cached metrics if less than 10 seconds old
+            return MetricsResponse(
+                success=True,
+                message="Metrics retrieved from cache",
+                metrics=cache_entry["data"],
+                timestamp=cache_entry["timestamp"].isoformat(),
+            )
+
+    # Fetch fresh metrics
+    metrics_data = await fetch_deployment_metrics(namespace, release_name)
+
+    # Update cache
+    metrics_cache[cache_key] = {"data": metrics_data, "timestamp": current_time}
+
+    return MetricsResponse(
+        success=True,
+        message="Metrics retrieved successfully",
+        metrics=metrics_data,
+        timestamp=current_time.isoformat(),
+    )
 
 
 class ConnectionManager:
@@ -1824,10 +2146,29 @@ class ClusterStatus(BaseModel):
     gpu_type: Optional[str] = None
     endpoint: Optional[str] = None
     error_message: Optional[str] = None
+    progress: Optional[int] = 0  # Progress percentage (0-100)
+
+
+# Store cluster logs in memory
+cluster_logs = {}
+
+
+# Function to add a log entry to a cluster's log history
+def add_cluster_log(cluster_id: str, log_entry: Dict[str, Any]):
+    """Add a log entry to a cluster's log history"""
+    if cluster_id not in cluster_logs:
+        cluster_logs[cluster_id] = []
+
+    # Add the log entry to the cluster's logs
+    cluster_logs[cluster_id].append(log_entry)
+
+    # Keep only the most recent 100 logs
+    if len(cluster_logs[cluster_id]) > 100:
+        cluster_logs[cluster_id] = cluster_logs[cluster_id][-100:]
 
 
 @app.post("/clusters/create", response_model=ClusterResponse)
-async def create_cluster(request: ClusterRequest, background_tasks: BackgroundTasks):
+async def create_cluster(request: ClusterRequest):
     """Create a new GKE cluster with GPU support"""
     cluster_id = str(uuid.uuid4())
 
@@ -1840,16 +2181,31 @@ async def create_cluster(request: ClusterRequest, background_tasks: BackgroundTa
         "status": "PENDING",
         "created_at": datetime.utcnow().isoformat(),
         "request": request.dict(),
+        "progress": 0,  # Track progress percentage
     }
 
-    # Run cluster creation in background
-    background_tasks.add_task(_create_cluster, cluster_id, request)
+    # Run cluster creation in a separate thread
+    thread = threading.Thread(
+        target=_create_cluster_thread, args=(cluster_id, request), daemon=True
+    )
+    thread.start()
 
     return ClusterResponse(
         success=True,
         message=f"Cluster creation started for {request.cluster_name}",
         cluster_id=cluster_id,
     )
+
+
+def _create_cluster_thread(cluster_id: str, request: ClusterRequest):
+    """Non-async function to create a cluster in a separate thread"""
+    # Call the async function in a new event loop
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(_create_cluster(cluster_id, request))
+    finally:
+        loop.close()
 
 
 async def _create_cluster(cluster_id: str, request: ClusterRequest):
@@ -1892,19 +2248,19 @@ async def _create_cluster(cluster_id: str, request: ClusterRequest):
                     except:
                         pass
 
-    # Create and add the handler
-    queue_handler = QueueHandler(cluster_id)
-    queue_handler.setFormatter(logging.Formatter("%(message)s"))
-    gke_logger = logging.getLogger("gke-cluster-creator")
-    gke_logger.addHandler(queue_handler)
-
     try:
         # Update status to creating
         active_clusters[cluster_id]["status"] = "CREATING"
+        active_clusters[cluster_id]["progress"] = 10  # 10% progress
 
-        # Log the creation start
-        logger.info(
-            f"Creating cluster {request.cluster_name} in project {request.project_id}"
+        # Add key step for creation start
+        add_cluster_log(
+            cluster_id,
+            {
+                "timestamp": datetime.utcnow().isoformat(),
+                "level": "INFO",
+                "message": f"Starting cluster creation: {request.cluster_name} in project {request.project_id}",
+            },
         )
 
         # Convert request to argparse namespace to match gcloud main.py expectations
@@ -1924,14 +2280,58 @@ async def _create_cluster(cluster_id: str, request: ClusterRequest):
             raise Exception(
                 f"Project {request.project_id} not found or not accessible."
             )
+        active_clusters[cluster_id]["progress"] = 30  # 30% progress
+
+        # Add key step for project verification
+        add_cluster_log(
+            cluster_id,
+            {
+                "timestamp": datetime.utcnow().isoformat(),
+                "level": "INFO",
+                "message": f"Project verified and APIs being enabled",
+            },
+        )
 
         # Enable required APIs
         enable_required_apis(request.project_id)
+        active_clusters[cluster_id]["progress"] = 40  # 40% progress
+
+        # Add key step for API enablement
+        add_cluster_log(
+            cluster_id,
+            {
+                "timestamp": datetime.utcnow().isoformat(),
+                "level": "INFO",
+                "message": f"Creating GKE cluster with standard node pool",
+            },
+        )
 
         # Create the cluster
+        active_clusters[cluster_id]["progress"] = 50  # 50% progress
+
+        # Add key step for GPU node pool creation
+        add_cluster_log(
+            cluster_id,
+            {
+                "timestamp": datetime.utcnow().isoformat(),
+                "level": "INFO",
+                "message": f"Adding GPU node pool with {request.gpu_type} GPUs",
+            },
+        )
+
         if create_gke_cluster(args):
             active_clusters[cluster_id]["status"] = "RUNNING"
-            logger.info(f"Cluster {request.cluster_name} created successfully")
+            active_clusters[cluster_id]["progress"] = 100  # 100% progress
+
+            # Add key step for successful completion
+            add_cluster_log(
+                cluster_id,
+                {
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "level": "INFO",
+                    "message": f"Cluster {request.cluster_name} created successfully",
+                },
+            )
 
             # Get the cluster endpoint
             cmd = f"gcloud container clusters describe {request.cluster_name} --project={request.project_id} --zone={request.zone} --format=json"
@@ -1958,8 +2358,8 @@ async def _create_cluster(cluster_id: str, request: ClusterRequest):
         active_clusters[cluster_id]["error_message"] = str(e)
 
     finally:
-        # Remove the handler
-        gke_logger.removeHandler(queue_handler)
+        # No need to remove handler as we're not using one
+        pass
 
 
 @app.post("/clusters/delete", response_model=ClusterResponse)
@@ -2358,21 +2758,49 @@ async def get_cluster_by_id(cluster_id: str):
 
 
 @app.get("/clusters/{cluster_id}/logs")
-async def get_cluster_logs(cluster_id: str, limit: int = 100):
-    """Get logs for a cluster, optionally limited to the most recent entries"""
+async def get_cluster_logs(
+    cluster_id: str, limit: int = 100, since_timestamp: Optional[str] = None
+):
+    """Get logs for a cluster, optionally limited to the most recent entries or since a specific timestamp"""
     if cluster_id not in active_clusters:
         raise HTTPException(status_code=404, detail="Cluster not found")
 
-    # Return the logs for this cluster, with the most recent first
+    # Return the logs for this cluster
     cluster_log_entries = cluster_logs.get(cluster_id, [])
 
+    # Filter logs by timestamp if provided
+    if since_timestamp:
+        try:
+            # Parse the timestamp
+            since_dt = datetime.fromisoformat(since_timestamp.replace("Z", "+00:00"))
+            # Filter logs that are newer than the provided timestamp
+            filtered_logs = [
+                log
+                for log in cluster_log_entries
+                if datetime.fromisoformat(log["timestamp"].replace("Z", "+00:00"))
+                > since_dt
+            ]
+        except ValueError:
+            # If timestamp parsing fails, ignore the filter
+            filtered_logs = cluster_log_entries
+    else:
+        filtered_logs = cluster_log_entries
+
     # Get the most recent logs up to the limit
-    recent_logs = cluster_log_entries[-limit:] if limit > 0 else cluster_log_entries
+    recent_logs = filtered_logs[-limit:] if limit > 0 else filtered_logs
 
     return {
         "logs": recent_logs,
         "total_logs": len(cluster_log_entries),
         "status": active_clusters[cluster_id].get("status", "UNKNOWN"),
+        "progress": active_clusters[cluster_id].get("progress", 0),
+        "cluster_info": {
+            "project_id": active_clusters[cluster_id].get("project_id"),
+            "zone": active_clusters[cluster_id].get("zone"),
+            "cluster_name": active_clusters[cluster_id].get("cluster_name"),
+            "created_at": active_clusters[cluster_id].get("created_at"),
+            "endpoint": active_clusters[cluster_id].get("endpoint"),
+        },
     }
 
 
@@ -2481,66 +2909,82 @@ async def websocket_cluster_logs(websocket: WebSocket, cluster_id: str):
 
 
 @app.get("/deployments/{deployment_id}/metrics")
-async def get_deployment_metrics(deployment_id: str, metric_name: Optional[str] = Query(None)):
+async def get_deployment_metrics(
+    deployment_id: str, metric_name: Optional[str] = Query(None)
+):
     """Get metrics for a specific deployment from Google Cloud Managed Prometheus"""
     try:
         # Get deployment details first
         if deployment_id not in active_deployments:
             raise HTTPException(status_code=404, detail="Deployment not found")
-            
+
         deployment = active_deployments[deployment_id]
         namespace = deployment.get("namespace")
         release_name = deployment.get("name")
-        
+
         if not namespace or not release_name:
             return MetricsResponse(
-                success=False,
-                message="Deployment information incomplete"
+                success=False, message="Deployment information incomplete"
             )
-        
+
         # Construct Prometheus query to get metrics for this deployment
         # Use the Google Cloud Managed Prometheus query endpoint
         # This is a simplified example - in production, you would use proper authentication
-        
+
         # Get the project ID from environment or configuration
         project_id = os.environ.get("GCP_PROJECT_ID", "")
         if not project_id:
             return MetricsResponse(
-                success=False,
-                message="GCP Project ID not configured"
+                success=False, message="GCP Project ID not configured"
             )
-            
+
         # Query parameters
         query_params = {
             "cluster": f"projects/{project_id}/locations/global/clusters/default",  # Adjust for your actual cluster
-            "query": f""
+            "query": f"",
         }
-        
+
         # Build the query based on the metric name
         if metric_name:
             # Query for a specific metric
             if metric_name == "gpu_utilization":
-                query_params["query"] = f'nvidia_gpu_utilization_percent{{namespace="{namespace}", pod=~".*{release_name}.*"}}'  
+                query_params["query"] = (
+                    f'nvidia_gpu_utilization_percent{{namespace="{namespace}", pod=~".*{release_name}.*"}}'
+                )
             elif metric_name == "memory_usage":
-                query_params["query"] = f'container_memory_usage_bytes{{namespace="{namespace}", pod=~".*{release_name}.*"}}'
+                query_params["query"] = (
+                    f'container_memory_usage_bytes{{namespace="{namespace}", pod=~".*{release_name}.*"}}'
+                )
             elif metric_name == "cpu_usage":
-                query_params["query"] = f'container_cpu_usage_seconds_total{{namespace="{namespace}", pod=~".*{release_name}.*"}}'
+                query_params["query"] = (
+                    f'container_cpu_usage_seconds_total{{namespace="{namespace}", pod=~".*{release_name}.*"}}'
+                )
             elif metric_name == "request_count":
-                query_params["query"] = f'vllm_http_request_total{{namespace="{namespace}", pod=~".*{release_name}.*"}}'
+                query_params["query"] = (
+                    f'vllm_http_request_total{{namespace="{namespace}", pod=~".*{release_name}.*"}}'
+                )
             elif metric_name == "request_latency":
-                query_params["query"] = f'vllm_request_latency_seconds{{namespace="{namespace}", pod=~".*{release_name}.*"}}'
+                query_params["query"] = (
+                    f'vllm_request_latency_seconds{{namespace="{namespace}", pod=~".*{release_name}.*"}}'
+                )
             else:
                 # Generic query for any metric name provided
-                query_params["query"] = f'{metric_name}{{namespace="{namespace}", pod=~".*{release_name}.*"}}'
+                query_params["query"] = (
+                    f'{metric_name}{{namespace="{namespace}", pod=~".*{release_name}.*"}}'
+                )
         else:
             # Default: get some basic metrics if no specific metric requested
-            query_params["query"] = f'nvidia_gpu_utilization_percent{{namespace="{namespace}", pod=~".*{release_name}.*"}}'
-        
+            query_params["query"] = (
+                f'nvidia_gpu_utilization_percent{{namespace="{namespace}", pod=~".*{release_name}.*"}}'
+            )
+
         # Google Cloud Monitoring API URL for Prometheus queries
         endpoint = f"https://monitoring.googleapis.com/v1/projects/{project_id}/location/global/prometheus/api/v1/query"
-        
-        logger.info(f"Querying Prometheus at {endpoint} with query: {query_params['query']}")
-        
+
+        logger.info(
+            f"Querying Prometheus at {endpoint} with query: {query_params['query']}"
+        )
+
         # In production, you'd use proper authentication with Google Cloud APIs
         # This is a simplified mock implementation
         try:
@@ -2552,7 +2996,7 @@ async def get_deployment_metrics(deployment_id: str, metric_name: Optional[str] 
             #         message=f"Error querying Prometheus: {response.text}"
             #     )
             # metrics_data = response.json()
-            
+
             # For now, provide mock data for demo purposes
             metrics_data = {
                 "status": "success",
@@ -2561,34 +3005,323 @@ async def get_deployment_metrics(deployment_id: str, metric_name: Optional[str] 
                     "result": [
                         {
                             "metric": {
-                                "__name__": metric_name or "nvidia_gpu_utilization_percent",
+                                "__name__": metric_name
+                                or "nvidia_gpu_utilization_percent",
                                 "pod": f"{release_name}-vllm-0",
-                                "namespace": namespace
+                                "namespace": namespace,
                             },
-                            "value": [1620000000, "65.2"]
+                            "value": [1620000000, "65.2"],
                         }
-                    ]
-                }
+                    ],
+                },
             }
-            
+
             return MetricsResponse(
                 success=True,
                 message="Metrics retrieved successfully",
-                metrics=metrics_data
+                metrics=metrics_data,
             )
-            
+
         except Exception as e:
             logger.error(f"Error querying Prometheus: {str(e)}")
             return MetricsResponse(
-                success=False,
-                message=f"Error querying Prometheus: {str(e)}"
+                success=False, message=f"Error querying Prometheus: {str(e)}"
             )
-            
+
     except Exception as e:
         logger.error(f"Error retrieving metrics: {str(e)}")
         return MetricsResponse(
-            success=False,
-            message=f"Error retrieving metrics: {str(e)}"
+            success=False, message=f"Error retrieving metrics: {str(e)}"
+        )
+
+
+@app.post("/api/deployments/metrics/cloud")
+async def get_cloud_metrics(request: DeploymentMetricsRequest):
+    """Get metrics for a deployment from Google Cloud Monitoring Service"""
+    try:
+        namespace = request.namespace
+        release_name = request.release_name
+        metric_names = request.metric_names or [
+            "vllm:prompt_tokens_total",
+            "vllm:generation_tokens_total",
+            "nvidia_gpu_utilization_percent",  # Try standard Prometheus metric names
+            "container_memory_usage_bytes",
+        ]
+        time_range_minutes = request.time_range_minutes
+        use_range_query = request.use_range_query
+
+        # First try to find project ID from active deployments
+        project_id = None
+        deployment_id = None
+
+        # Look for the deployment in active_deployments
+        for dep_id, deployment in active_deployments.items():
+            if (
+                deployment.get("namespace") == namespace
+                and deployment.get("name") == release_name
+            ):
+                logger.info(f"Found matching deployment: {dep_id}")
+                deployment_id = dep_id
+
+                # Check if this deployment is linked to a cluster
+                cluster_id = deployment.get("cluster_id")
+                if cluster_id and cluster_id in active_clusters:
+                    project_id = active_clusters[cluster_id].get("project_id")
+                    logger.info(f"Found project ID from cluster: {project_id}")
+                break
+
+        # If not found in active deployments, try to get from kubectl context
+        if not project_id:
+            try:
+                # Get current kubectl context
+                result = subprocess.run(
+                    ["kubectl", "config", "current-context"],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+                current_context = result.stdout.strip()
+                logger.info(f"Current kubectl context: {current_context}")
+
+                # Parse GKE context which typically has format: gke_PROJECT_ZONE_CLUSTER
+                if current_context.startswith("gke_"):
+                    parts = current_context.split("_")
+                    if len(parts) >= 2:
+                        project_id = parts[1]
+                        logger.info(
+                            f"Extracted project ID from kubectl context: {project_id}"
+                        )
+            except subprocess.SubprocessError as e:
+                logger.info(f"Could not get project ID from kubectl context: {str(e)}")
+
+        # If still not found, try to get from environment or gcloud config
+        if not project_id:
+            project_id = os.environ.get("GCP_PROJECT_ID")
+            if project_id:
+                logger.info(f"Using project ID from environment variable: {project_id}")
+
+        # Last resort: try gcloud config
+        if not project_id:
+            try:
+                result = subprocess.run(
+                    ["gcloud", "config", "get-value", "project"],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+                project_id = result.stdout.strip()
+                logger.info(f"Using project ID from gcloud config: {project_id}")
+            except subprocess.SubprocessError as e:
+                logger.error(f"Failed to get project ID from gcloud: {str(e)}")
+                return MetricsResponse(
+                    success=False,
+                    message="Could not determine GCP project ID from any source",
+                )
+
+        # Get current time for timestamp - Prometheus requires Unix timestamp
+        now_dt = datetime.now()
+        now_unix = int(now_dt.timestamp())  # Convert to Unix timestamp for Prometheus
+        now_iso = now_dt.isoformat()  # Keep ISO format for our response
+
+        # Prepare results dictionary
+        results = {}
+
+        # Get authentication credentials
+        try:
+            # This uses Application Default Credentials
+            # It will use credentials from:
+            # 1. GOOGLE_APPLICATION_CREDENTIALS environment variable
+            # 2. User credentials from gcloud auth application-default login
+            # 3. GCE/GKE metadata server if running in Google Cloud
+            # credentials, project = default()
+            # if not credentials.valid:
+            #     credentials.refresh(GoogleAuthRequest())
+
+            # # If project_id wasn't set, use the one from credentials
+            # if not project_id:
+            #     project_id = project
+            #     logger.info(f"Using project ID from credentials: {project_id}")
+
+            # Get auth token
+            auth_token = "ya29.a0AW4XtxjKdT-7Kb-CFs7HM5eyZ0qVIgf_eUAJQsk382Xm83_T948yCS22n0khlh5ptXhlTB9eKNtIp4M3QSBq5z2L0MYFrCaCL6QaRSm6lo--Oj2RcGxaj1ab_zYZ-fCc7ILg8wcnivuK4cqM-54qmd81Tviqm-J0ke_IIf-q2aPKOT8aCgYKAfUSARQSFQHGX2MiG5Zv1dZ6aPFNWzizj3Rrzw0182"
+            auth_headers = {"Authorization": f"Bearer {auth_token}"}
+
+            logger.info(f"Successfully obtained Google Cloud authentication token")
+        except Exception as e:
+            logger.error(f"Error getting Google Cloud authentication: {str(e)}")
+            return MetricsResponse(
+                success=False,
+                message=f"Failed to authenticate with Google Cloud: {str(e)}",
+            )
+
+        # Construct the Prometheus query API endpoint - use range query if requested
+        if use_range_query:
+            api_endpoint = f"https://monitoring.googleapis.com/v1/projects/{project_id}/location/global/prometheus/api/v1/query_range"
+        else:
+            api_endpoint = f"https://monitoring.googleapis.com/v1/projects/{project_id}/location/global/prometheus/api/v1/query"
+
+        # Process each requested metric
+        for metric_name in metric_names:
+            # Build appropriate query based on metric name
+            if metric_name == "tokens_total":
+                # Special case for combined tokens - use exact format that works
+                query = f'sum(vllm:prompt_tokens_total{{pod=~"{release_name}-.*"}}) + sum(vllm:generation_tokens_total{{pod=~"{release_name}-.*"}})'
+            elif ":" in metric_name:
+                # Direct Prometheus metric name
+                query = f'sum({metric_name}{{namespace="{namespace}", pod=~"{release_name}-.*"}})'
+            else:
+                # Add vllm: prefix if not specified
+                query = f'sum(vllm:{metric_name}{{namespace="{namespace}", pod=~"{release_name}-.*"}})'
+
+            # Query parameters - Prometheus requires Unix timestamp
+            if use_range_query:
+                # For range queries, we need start, end and step
+                end_time = now_unix
+                start_time = end_time - (
+                    time_range_minutes * 60
+                )  # Convert minutes to seconds
+                step = "60s"  # 1 minute resolution
+                params = {
+                    "query": query,
+                    "start": start_time,
+                    "end": end_time,
+                    "step": step,
+                }
+            else:
+                # For instant queries, we just need the time
+                params = {
+                    "query": query,
+                    "time": now_unix,
+                }  # Current time as Unix timestamp
+
+            logger.info(f"Querying Google Cloud Monitoring with: {query}")
+
+            try:
+                # Make the API request to Google Cloud Monitoring
+                url = f"{api_endpoint}?{urlencode(params)}"
+                response = requests.get(url, headers=auth_headers)
+
+                if response.status_code == 200:
+                    metric_data = response.json()
+                    results[metric_name] = metric_data
+                    # Log the full response for debugging
+                    logger.info(f"Successfully retrieved metrics for {metric_name}")
+                    logger.info(f"Response data: {json.dumps(metric_data)}")
+                else:
+                    error_msg = f"Error querying metric {metric_name}: HTTP {response.status_code} - {response.text}"
+                    logger.error(error_msg)
+                    results[metric_name] = {"error": error_msg}
+
+            except Exception as e:
+                logger.error(f"Error processing metric {metric_name}: {str(e)}")
+                results[metric_name] = {"error": str(e)}
+
+        # Process results to provide a more user-friendly format
+        processed_results = {}
+        for metric_name, data in results.items():
+            if "error" in data:
+                processed_results[metric_name] = {"error": data["error"]}
+                continue
+
+            if data.get("status") == "success" and "result" in data.get("data", {}):
+                result_data = data["data"]["result"]
+                if result_data:
+                    # Handle different response formats based on query type
+                    if use_range_query:
+                        # Range query returns values array with timestamps
+                        try:
+                            # Get the most recent value from the range
+                            values = result_data[0].get("values", [])
+                            if values:
+                                # Get the last value (most recent)
+                                latest_value = values[-1]
+                                if len(latest_value) >= 2:
+                                    value = float(latest_value[1])
+                                    processed_results[metric_name] = {
+                                        "value": value,
+                                        "timestamp": latest_value[0],
+                                        "labels": result_data[0].get("metric", {}),
+                                        "values": values,  # Include full history
+                                    }
+                                else:
+                                    processed_results[metric_name] = {
+                                        "error": "Invalid value format in range"
+                                    }
+                            else:
+                                processed_results[metric_name] = {
+                                    "value": 0,
+                                    "info": "Empty values array",
+                                }
+                        except (ValueError, TypeError, IndexError) as e:
+                            processed_results[metric_name] = {
+                                "error": f"Error processing range data: {str(e)}"
+                            }
+                    else:
+                        # Instant query returns single value
+                        value_data = result_data[0].get("value", [0, "0"])
+                        if len(value_data) >= 2:
+                            try:
+                                value = float(value_data[1])
+                                processed_results[metric_name] = {
+                                    "value": value,
+                                    "timestamp": value_data[0],
+                                    "labels": result_data[0].get("metric", {}),
+                                }
+                            except (ValueError, TypeError):
+                                processed_results[metric_name] = {
+                                    "error": "Invalid value format"
+                                }
+                        else:
+                            processed_results[metric_name] = {
+                                "error": "Invalid value data structure"
+                            }
+                else:
+                    # Try to get alternative metrics if standard ones aren't available
+                    if (
+                        metric_name == "vllm:gpu_utilization"
+                        and "nvidia_gpu_utilization_percent" not in metric_names
+                    ):
+                        # Add nvidia_gpu_utilization_percent to the list of metrics to try next
+                        metric_names.append("nvidia_gpu_utilization_percent")
+                    elif (
+                        metric_name == "memory_usage"
+                        and "container_memory_usage_bytes" not in metric_names
+                    ):
+                        # Add container_memory_usage_bytes to the list of metrics to try next
+                        metric_names.append("container_memory_usage_bytes")
+
+                    processed_results[metric_name] = {
+                        "value": 0,
+                        "info": "No data available",
+                    }
+
+        # Add some calculated metrics
+        if (
+            "vllm:prompt_tokens_total" in processed_results
+            and "vllm:generation_tokens_total" in processed_results
+        ):
+            prompt_tokens = processed_results["vllm:prompt_tokens_total"].get(
+                "value", 0
+            )
+            gen_tokens = processed_results["vllm:generation_tokens_total"].get(
+                "value", 0
+            )
+            processed_results["total_tokens"] = {
+                "value": prompt_tokens + gen_tokens,
+                "timestamp": int(datetime.now().timestamp()),
+            }
+
+        return MetricsResponse(
+            success=True,
+            message="Metrics retrieved successfully",
+            metrics=processed_results,
+            timestamp=now_iso,
+        )
+
+    except Exception as e:
+        logger.error(f"Error retrieving cloud metrics: {str(e)}")
+        return MetricsResponse(
+            success=False, message=f"Error retrieving cloud metrics: {str(e)}"
         )
 
 

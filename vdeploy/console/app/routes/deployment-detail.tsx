@@ -1,5 +1,6 @@
 "use client";
 
+import * as React from "react";
 import { useParams, Link } from "react-router-dom";
 import { Button } from "../components/ui/button";
 import {
@@ -11,10 +12,21 @@ import {
   useCheckDeploymentReadyForChat,
   useSendChatMessage,
   useDeploymentMetrics,
+  useCloudMetrics,
   type ChatMessage,
   type MetricsResponse,
+  type CloudMetricsResponse,
 } from "~/lib/api";
-import React from "react";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from "recharts";
 
 // Simple icons
 function RefreshIcon() {
@@ -111,6 +123,27 @@ export default function DeploymentDetail() {
 
   const { data: latencyMetrics, isLoading: isLoadingLatencyMetrics } =
     useDeploymentMetrics(id, "request_latency");
+
+  // Get token usage metrics from cloud metrics endpoint
+  const { data: tokenMetrics, isLoading: isLoadingTokenMetrics } =
+    useCloudMetrics(deployment, ["tokens_total"], true, 120);
+
+  // Prepare token usage chart data
+  const [tokenChartData, setTokenChartData] = React.useState<
+    Array<{ time: string; tokens: number }>
+  >([]);
+
+  // Process token metrics data for the chart
+  React.useEffect(() => {
+    if (tokenMetrics?.metrics?.tokens_total?.values) {
+      const values = tokenMetrics.metrics.tokens_total.values;
+      const chartData = values.map(([timestamp, value]) => ({
+        time: new Date(timestamp * 1000).toLocaleTimeString(),
+        tokens: parseFloat(value),
+      }));
+      setTokenChartData(chartData);
+    }
+  }, [tokenMetrics]);
 
   // Check if the model is ready when the chat tab is activated
   React.useEffect(() => {
@@ -416,158 +449,100 @@ export default function DeploymentDetail() {
       </div>
 
       {activeTab === "analytics" ? (
-        // Analytics tab content
-        <div className="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden p-4">
-          <h3 className="text-xl font-semibold mb-4">Deployment Analytics</h3>
+        <div className="bg-gray-800 rounded-lg border border-gray-700 p-4">
+          <h3 className="text-lg font-semibold mb-4">Deployment Analytics</h3>
 
+          {/* Token Usage Chart */}
+          <div className="mb-8">
+            <h4 className="text-md font-medium mb-2">Token Usage</h4>
+            <div className="bg-gray-900 rounded-lg p-4 border border-gray-700">
+              {isLoadingTokenMetrics ? (
+                <div className="flex justify-center items-center h-64">
+                  <p className="text-gray-400">Loading token usage data...</p>
+                </div>
+              ) : tokenChartData.length > 0 ? (
+                <div className="h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart
+                      data={tokenChartData}
+                      margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" stroke="#444" />
+                      <XAxis
+                        dataKey="time"
+                        stroke="#888"
+                        tick={{ fill: "#888" }}
+                        tickFormatter={(value) =>
+                          value.split(":")[0] + ":" + value.split(":")[1]
+                        }
+                      />
+                      <YAxis stroke="#888" tick={{ fill: "#888" }} />
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: "#333",
+                          borderColor: "#555",
+                        }}
+                        labelStyle={{ color: "#fff" }}
+                        formatter={(value) => [
+                          Number(value).toLocaleString(),
+                          "Tokens",
+                        ]}
+                      />
+                      <Legend />
+                      <Line
+                        type="monotone"
+                        dataKey="tokens"
+                        stroke="#8884d8"
+                        activeDot={{ r: 8 }}
+                        name="Total Tokens"
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <div className="flex justify-center items-center h-64">
+                  <p className="text-gray-400">No token usage data available</p>
+                </div>
+              )}
+              <div className="mt-2 text-xs text-gray-500">
+                <p>
+                  Shows total tokens (prompt + generation) processed by this
+                  deployment over time
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Other metrics placeholders */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* GPU Utilization Metric */}
-            <div className="bg-gray-900 p-4 rounded-lg">
-              <h4 className="text-lg font-medium mb-2">GPU Utilization</h4>
-              {isLoadingGpuMetrics ? (
-                <div className="flex justify-center items-center h-32">
-                  <p className="text-gray-400">Loading metrics...</p>
-                </div>
-              ) : gpuMetrics?.success &&
-                gpuMetrics?.metrics?.data?.result?.length > 0 ? (
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-gray-400">Current:</span>
-                    <span className="text-2xl font-bold">
-                      {parseFloat(
-                        gpuMetrics?.metrics?.data?.result?.[0]?.value?.[1] ||
-                          "0"
-                      ).toFixed(1)}
-                      %
-                    </span>
-                  </div>
-                  <div className="w-full bg-gray-700 rounded-full h-4 mb-4">
-                    <div
-                      className="bg-green-500 h-4 rounded-full"
-                      style={{
-                        width: `${Math.min(
-                          parseFloat(
-                            gpuMetrics?.metrics?.data?.result?.[0]
-                              ?.value?.[1] || "0"
-                          ),
-                          100
-                        )}%`,
-                      }}
-                    ></div>
-                  </div>
-                  <div className="text-xs text-gray-400">
-                    Pod:{" "}
-                    {gpuMetrics?.metrics?.data?.result?.[0]?.metric?.pod ||
-                      "unknown"}
-                  </div>
-                </div>
-              ) : (
-                <div className="flex justify-center items-center h-32">
-                  <p className="text-gray-400">No GPU metrics available</p>
-                </div>
-              )}
+            <div className="bg-gray-900 rounded-lg p-4 border border-gray-700">
+              <h4 className="text-md font-medium mb-2">GPU Utilization</h4>
+              <p className="text-gray-400">Coming soon</p>
             </div>
-
-            {/* Memory Usage Metric */}
-            <div className="bg-gray-900 p-4 rounded-lg">
-              <h4 className="text-lg font-medium mb-2">Memory Usage</h4>
-              {isLoadingMemoryMetrics ? (
-                <div className="flex justify-center items-center h-32">
-                  <p className="text-gray-400">Loading metrics...</p>
-                </div>
-              ) : memoryMetrics?.success &&
-                memoryMetrics?.metrics?.data?.result?.length > 0 ? (
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-gray-400">Current:</span>
-                    <span className="text-2xl font-bold">
-                      {(
-                        parseInt(
-                          memoryMetrics?.metrics?.data?.result?.[0]
-                            ?.value?.[1] || "0"
-                        ) /
-                        (1024 * 1024 * 1024)
-                      ).toFixed(2)}{" "}
-                      GB
-                    </span>
-                  </div>
-                  <div className="text-xs text-gray-400 mt-4">
-                    Pod:{" "}
-                    {memoryMetrics?.metrics?.data?.result?.[0]?.metric?.pod ||
-                      "unknown"}
-                  </div>
-                </div>
-              ) : (
-                <div className="flex justify-center items-center h-32">
-                  <p className="text-gray-400">No memory metrics available</p>
-                </div>
-              )}
+            <div className="bg-gray-900 rounded-lg p-4 border border-gray-700">
+              <h4 className="text-md font-medium mb-2">Memory Usage</h4>
+              <p className="text-gray-400">Coming soon</p>
             </div>
-
-            {/* CPU Usage Metric */}
-            <div className="bg-gray-900 p-4 rounded-lg">
-              <h4 className="text-lg font-medium mb-2">CPU Usage</h4>
-              {isLoadingCpuMetrics ? (
-                <div className="flex justify-center items-center h-32">
-                  <p className="text-gray-400">Loading metrics...</p>
-                </div>
-              ) : cpuMetrics?.success &&
-                cpuMetrics?.metrics?.data?.result?.length > 0 ? (
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-gray-400">Current:</span>
-                    <span className="text-2xl font-bold">
-                      {parseFloat(
-                        cpuMetrics?.metrics?.data?.result?.[0]?.value?.[1] ||
-                          "0"
-                      ).toFixed(2)}{" "}
-                      cores
-                    </span>
-                  </div>
-                  <div className="text-xs text-gray-400 mt-4">
-                    Pod:{" "}
-                    {cpuMetrics?.metrics?.data?.result?.[0]?.metric?.pod ||
-                      "unknown"}
-                  </div>
-                </div>
-              ) : (
-                <div className="flex justify-center items-center h-32">
-                  <p className="text-gray-400">No CPU metrics available</p>
-                </div>
-              )}
-            </div>
-
-            {/* Request Count Metric */}
-            <div className="bg-gray-900 p-4 rounded-lg">
-              <h4 className="text-lg font-medium mb-2">Total Requests</h4>
+            <div className="bg-gray-900 rounded-lg p-4 border border-gray-700">
+              <h4 className="text-md font-medium mb-2">Request Count</h4>
               {isLoadingRequestCountMetrics ? (
-                <div className="flex justify-center items-center h-32">
-                  <p className="text-gray-400">Loading metrics...</p>
-                </div>
-              ) : requestCountMetrics?.success &&
-                requestCountMetrics?.metrics?.data?.result?.length > 0 ? (
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-gray-400">Total:</span>
-                    <span className="text-2xl font-bold">
-                      {parseInt(
-                        requestCountMetrics?.metrics?.data?.result?.[0]
-                          ?.value?.[1] || "0"
-                      ).toLocaleString()}
-                    </span>
-                  </div>
-                  <div className="text-xs text-gray-400 mt-4">
-                    Pod:{" "}
-                    {requestCountMetrics?.metrics?.data?.result?.[0]?.metric
-                      ?.pod || "unknown"}
-                  </div>
-                </div>
+                <p className="text-gray-400">Loading request count data...</p>
+              ) : requestCountMetrics ? (
+                <p className="text-gray-400">Request count metrics available</p>
               ) : (
-                <div className="flex justify-center items-center h-32">
-                  <p className="text-gray-400">
-                    No request count metrics available
-                  </p>
-                </div>
+                <p className="text-gray-400">
+                  No request count metrics available
+                </p>
+              )}
+            </div>
+            <div className="bg-gray-900 rounded-lg p-4 border border-gray-700">
+              <h4 className="text-md font-medium mb-2">Latency</h4>
+              {isLoadingLatencyMetrics ? (
+                <p className="text-gray-400">Loading latency data...</p>
+              ) : latencyMetrics ? (
+                <p className="text-gray-400">Latency metrics available</p>
+              ) : (
+                <p className="text-gray-400">No latency metrics available</p>
               )}
             </div>
           </div>
@@ -822,29 +797,6 @@ ${
                 </div>
               ))
             )}
-          </div>
-          <div className="border-t border-gray-700 p-4">
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={userMessage}
-                onChange={(e) => setUserMessage(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
-                className="flex-1 bg-gray-700 text-white rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                disabled={isSending || !isModelReady}
-                placeholder={
-                  isModelReady
-                    ? "Type a message..."
-                    : "Checking if model is ready..."
-                }
-              />
-              <Button
-                onClick={handleSendMessage}
-                disabled={isSending || !userMessage.trim() || !isModelReady}
-              >
-                {isSending ? "Sending..." : "Send"}
-              </Button>
-            </div>
           </div>
         </div>
       )}

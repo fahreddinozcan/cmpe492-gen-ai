@@ -30,7 +30,7 @@ spec:
           command: ["/bin/sh", "-c"]
           args:
             [
-              "vllm serve HF_MODEL_PATH --trust-remote-code --enable-chunked-prefill --max-num-seqs MAX_SEQ_PLACEHOLDER",
+              "vllm serve HF_MODEL_PATH --trust-remote-code --enable-chunked-prefill=false --max-num-seqs MAX_SEQ_PLACEHOLDER",
             ]
           env:
             - name: HUGGING_FACE_HUB_TOKEN

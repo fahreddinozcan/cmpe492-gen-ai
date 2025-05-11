@@ -14,9 +14,24 @@ spec:
       scheme: http
       interval: {{ .Values.gcpManagedPrometheus.scrapeInterval }}
       path: /metrics
+      relabelings:
+      - sourceLabels: [__meta_kubernetes_pod_label_release]
+        targetLabel: release
+        action: replace
+      - sourceLabels: [__meta_kubernetes_pod_label_model]
+        targetLabel: model
+        action: replace
+      - sourceLabels: [__meta_kubernetes_pod_label_environment]
+        targetLabel: environment
+        action: replace
   selector:
     matchLabels:
-      app.kubernetes.io/name: {{ .Release.Name }}
-      app.kubernetes.io/instance: {{ .Release.Name }}
-      component: vllm
+      release: {{ .Release.Name }}
+      model: {{ range $index, $modelSpec := .Values.servingEngineSpec.modelSpec }}{{ if eq $index 0 }}{{ $modelSpec.name }}{{ end }}{{ end }}
+  targetLabels:
+    metadata:
+    - pod
+    - container
+    - top_level_controller_name
+    - top_level_controller_type
 {{- end }}
