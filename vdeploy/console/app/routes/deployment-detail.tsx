@@ -1,4 +1,4 @@
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import { Button } from "../components/ui/button";
 import {
   useDeployment,
@@ -7,47 +7,38 @@ import {
   useVLLMPodLogs,
 } from "~/lib/api";
 import React from "react";
+import {
+  RefreshCw,
+  Trash2,
+  Server,
+  Clock,
+  Copy,
+  Play,
+  Square,
+  RotateCcw,
+  CheckCircle2,
+  AlertCircle,
+  Settings,
+  Activity,
+  Terminal,
+  Calendar,
+  Hash,
+} from "lucide-react";
 
-// Simple icons
-function RefreshIcon() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 16 16"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <path
-        d="M13.6 2.4L12 0.8V4H8.8V5.6H14.4V0H13.6V2.4ZM12 8.8C12 10.88 10.32 12.56 8.24 12.56C6.16 12.56 4.48 10.88 4.48 8.8C4.48 6.72 6.16 5.04 8.24 5.04V8L11.44 4.8L8.24 1.6V4.48C5.84 4.48 3.92 6.4 3.92 8.8C3.92 11.2 5.84 13.12 8.24 13.12C10.64 13.12 12.56 11.2 12.56 8.8H12Z"
-        fill="currentColor"
-      />
-    </svg>
-  );
-}
-
-function DeleteIcon() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 16 16"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <path
-        d="M4 12.8C4 13.68 4.72 14.4 5.6 14.4H10.4C11.28 14.4 12 13.68 12 12.8V4H4V12.8ZM12.8 2.4H10.4L9.6 1.6H6.4L5.6 2.4H3.2V4H12.8V2.4Z"
-        fill="currentColor"
-      />
-    </svg>
-  );
+function StatusIcon({ status }: { status: string }) {
+  if (status === "deployed" || status === "running") {
+    return <CheckCircle2 className="w-5 h-5 text-green-400" />;
+  }
+  return <AlertCircle className="w-5 h-5 text-yellow-400" />;
 }
 
 export default function DeploymentDetail() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const logsEndRef = React.useRef<HTMLDivElement>(null);
   const [logMessages, setLogMessages] = React.useState<string[]>([]);
   const [isStreamingLogs, setIsStreamingLogs] = React.useState<boolean>(false);
+  const [isCopied, setIsCopied] = React.useState<boolean>(false);
 
   // Fixed data fetching hooks by removing useMemo
   const { data: deployment, isLoading, error, refetch } = useDeployment(id);
@@ -118,12 +109,12 @@ export default function DeploymentDetail() {
     )
       return;
     deleteDeployment(id);
-    window.location.href = "/deployments";
+    navigate("/deployments");
   };
 
   // Redirect if no ID
   if (!id) {
-    window.location.href = "/deployments";
+    navigate("/deployments");
     return <div>Redirecting...</div>;
   }
 
@@ -132,7 +123,7 @@ export default function DeploymentDetail() {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-gray-900">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mb-4"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mb-4"></div>
           <p className="text-white">Loading deployment details...</p>
         </div>
       </div>
@@ -150,10 +141,7 @@ export default function DeploymentDetail() {
           <Button variant="outline" onClick={() => refetch()}>
             Try Again
           </Button>
-          <Button
-            variant="secondary"
-            onClick={() => (window.location.href = "/deployments")}
-          >
+          <Button variant="secondary" onClick={() => navigate("/deployments")}>
             Back to Deployments
           </Button>
         </div>
@@ -169,7 +157,7 @@ export default function DeploymentDetail() {
         <p className="text-gray-400 mb-6">
           The deployment you're looking for could not be found.
         </p>
-        <Button onClick={() => (window.location.href = "/deployments")}>
+        <Button onClick={() => navigate("/deployments")}>
           Back to Deployments
         </Button>
       </div>
@@ -188,80 +176,134 @@ export default function DeploymentDetail() {
     }).format(date);
   };
 
+  // Get status color
+  const getStatusColor = (status: string) => {
+    switch (status?.toLowerCase()) {
+      case "deployed":
+      case "running":
+        return "text-green-400 bg-green-900/20 border-green-500/30";
+      case "pending":
+      case "provisioning":
+        return "text-yellow-400 bg-yellow-900/20 border-yellow-500/30";
+      case "failed":
+        return "text-red-400 bg-red-900/20 border-red-500/30";
+      default:
+        return "text-gray-400 bg-gray-900/20 border-gray-500/30";
+    }
+  };
+
   // Main content with deployment details
   return (
-    <div className="p-6 max-w-6xl mx-auto text-white min-h-screen">
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-white">{deployment.name}</h1>
-          <p className="text-gray-400">
-            Namespace: {deployment.namespace} | Created:{" "}
-            {formatDate(deployment.created_at)}
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleRefreshStatus}
-            disabled={isRefreshing}
-          >
-            <RefreshIcon />
-            {isRefreshing ? "Refreshing..." : "Refresh Status"}
-          </Button>
-          <Button
-            variant="destructive"
-            size="sm"
-            onClick={handleDeleteDeployment}
-            disabled={isDeleting}
-          >
-            <DeleteIcon />
-            {isDeleting ? "Deleting..." : "Delete"}
-          </Button>
+    <div className="min-h-screen bg-gray-900">
+      {/* Hero Section with improved design */}
+      <div className="relative bg-gradient-to-br from-gray-800 via-gray-900 to-black">
+        <div className="absolute inset-0 bg-grid-pattern opacity-5"></div>
+        <div className="relative p-6 max-w-6xl mx-auto">
+          <div className="flex justify-between items-start mb-6">
+            <div className="flex items-start space-x-4">
+              <div className="w-12 h-12 bg-gradient-to-br from-blue-600 to-blue-700 rounded-lg flex items-center justify-center shadow-lg">
+                <Server className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h1 className="text-3xl font-bold text-white mb-2">
+                  {deployment.name}
+                </h1>
+                <div className="flex items-center space-x-6 text-sm text-gray-400">
+                  <span className="flex items-center space-x-2">
+                    <Server className="w-4 h-4" />
+                    <span>Namespace: {deployment.namespace}</span>
+                  </span>
+                  <span className="flex items-center space-x-2">
+                    <Calendar className="w-4 h-4" />
+                    <span>Created: {formatDate(deployment.created_at)}</span>
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleRefreshStatus}
+                disabled={isRefreshing}
+                className="bg-gray-800/50 border-gray-600 hover:bg-gray-700 text-white"
+              >
+                <RefreshCw
+                  className={`w-4 h-4 ${isRefreshing ? "animate-spin" : ""}`}
+                />
+                <span className="ml-2">
+                  {isRefreshing ? "Refreshing..." : "Refresh Status"}
+                </span>
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={handleDeleteDeployment}
+                disabled={isDeleting}
+                className="bg-red-600/80 hover:bg-red-600 text-white"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span className="ml-2">
+                  {isDeleting ? "Deleting..." : "Delete"}
+                </span>
+              </Button>
+            </div>
+          </div>
+
+          {/* Status badges */}
+          <div className="flex items-center space-x-4 mt-6">
+            <div
+              className={`flex items-center space-x-2 px-3 py-2 rounded-lg border ${getStatusColor(
+                deployment.status
+              )}`}
+            >
+              <StatusIcon status={deployment.status} />
+              <span className="font-medium">{deployment.status}</span>
+            </div>
+            <div className="text-gray-400 text-sm flex items-center space-x-2">
+              <Hash className="w-4 h-4" />
+              <span>
+                ID:{" "}
+                <span className="font-mono text-gray-300">
+                  {deployment.deployment_id}
+                </span>
+              </span>
+            </div>
+          </div>
         </div>
       </div>
 
-      <div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-          <div className="bg-gray-800 shadow rounded-lg p-6">
-            <h2 className="text-lg font-semibold mb-4 text-white">
+      {/* Content Section */}
+      <div className="p-6 max-w-6xl mx-auto">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+          <div className="bg-gray-800/50 backdrop-blur-sm shadow-xl rounded-xl p-6 border border-gray-700/50">
+            <h2 className="text-lg font-semibold mb-4 text-white flex items-center">
+              <div className="w-8 h-8 bg-blue-600/20 rounded-lg flex items-center justify-center mr-3">
+                <Activity className="w-4 h-4 text-blue-400" />
+              </div>
               Deployment Status
             </h2>
             <div className="space-y-4">
-              <div className="flex items-center gap-2">
-                <div
-                  className={`w-3 h-3 rounded-full ${
-                    deployment.status === "deployed"
-                      ? "bg-green-500"
-                      : "bg-yellow-500"
-                  }`}
-                ></div>
-                <span className="font-medium text-white">
-                  {deployment.status}
-                </span>
-              </div>
-              <dl className="space-y-2">
-                <div className="grid grid-cols-3 gap-1">
-                  <dt className="text-gray-500">ID:</dt>
-                  <dd className="col-span-2 font-mono text-sm text-gray-300">
-                    {deployment.deployment_id}
+              <dl className="space-y-3">
+                <div className="flex justify-between items-center py-2 border-b border-gray-700/30">
+                  <dt className="text-gray-400">Model:</dt>
+                  <dd className="text-gray-200 font-medium">
+                    {deployment.model || "unknown"}
                   </dd>
                 </div>
-                <div className="grid grid-cols-3 gap-1">
-                  <dt className="text-gray-500">Model:</dt>
-                  <dd className="col-span-2 text-gray-300">
-                    {deployment.model}
+                <div className="flex justify-between items-center py-2 border-b border-gray-700/30">
+                  <dt className="text-gray-400">Health:</dt>
+                  <dd className="text-gray-200 font-medium">
+                    {deployment.health_status || "unknown"}
                   </dd>
                 </div>
-                <div className="grid grid-cols-3 gap-1">
-                  <dt className="text-gray-500">Health:</dt>
-                  <dd className="col-span-2 text-gray-300">
-                    {deployment.health_status || "Unknown"}
-                  </dd>
-                </div>
-                <div className="grid grid-cols-3 gap-1">
-                  <dt className="text-gray-500">Ready:</dt>
-                  <dd className="col-span-2 text-gray-300">
+                <div className="flex justify-between items-center py-2">
+                  <dt className="text-gray-400">Ready:</dt>
+                  <dd
+                    className={`font-medium ${
+                      deployment.ready ? "text-green-400" : "text-red-400"
+                    }`}
+                  >
                     {deployment.ready ? "Yes" : "No"}
                   </dd>
                 </div>
@@ -269,18 +311,21 @@ export default function DeploymentDetail() {
             </div>
           </div>
 
-          <div className="bg-gray-800 shadow rounded-lg p-6">
-            <h2 className="text-lg font-semibold mb-4 text-white">
-              Deployment Configuration
-            </h2>
-            <dl className="space-y-2">
-              <div className="grid grid-cols-3 gap-1">
-                <dt className="text-gray-500">Name:</dt>
-                <dd className="col-span-2 text-gray-300">{deployment.name}</dd>
+          <div className="bg-gray-800/50 backdrop-blur-sm shadow-xl rounded-xl p-6 border border-gray-700/50">
+            <h2 className="text-lg font-semibold mb-4 text-white flex items-center">
+              <div className="w-8 h-8 bg-purple-600/20 rounded-lg flex items-center justify-center mr-3">
+                <Settings className="w-4 h-4 text-purple-400" />
               </div>
-              <div className="grid grid-cols-3 gap-1">
-                <dt className="text-gray-500">Namespace:</dt>
-                <dd className="col-span-2 text-gray-300">
+              Configuration
+            </h2>
+            <dl className="space-y-3">
+              <div className="flex justify-between items-center py-2 border-b border-gray-700/30">
+                <dt className="text-gray-400">Name:</dt>
+                <dd className="text-gray-200 font-medium">{deployment.name}</dd>
+              </div>
+              <div className="flex justify-between items-center py-2">
+                <dt className="text-gray-400">Namespace:</dt>
+                <dd className="text-gray-200 font-medium">
                   {deployment.namespace}
                 </dd>
               </div>
@@ -288,17 +333,63 @@ export default function DeploymentDetail() {
           </div>
         </div>
 
-        {/* Code Snippet Section */}
-        <div className="space-y-2 mb-6">
-          <h2 className="text-lg font-semibold text-white">
-            API Usage Examples
-          </h2>
-          <div className="bg-gray-800 shadow rounded-lg p-6">
-            <h3 className="text-md font-medium mb-3 text-white">
+        {/* Chat with this model button */}
+        <div className="mb-8">
+          <button
+            onClick={() =>
+              navigate(`/completions?model=${deployment?.model || ""}`)
+            }
+            className="w-full bg-gradient-to-r from-purple-600 to-blue-500 hover:from-purple-700 hover:to-blue-600 text-white font-medium py-3 px-6 rounded-xl shadow-lg transition-all duration-300 flex items-center justify-center space-x-3"
+          >
+            <Terminal className="w-5 h-5" />
+            <span className="text-lg">Chat with this model</span>
+          </button>
+        </div>
+
+        {/* API Usage Examples */}
+        <div className="mb-8">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-semibold text-white flex items-center">
+              <div className="w-8 h-8 bg-green-600/20 rounded-lg flex items-center justify-center mr-3">
+                <Terminal className="w-4 h-4 text-green-400" />
+              </div>
+              API Usage Examples
+            </h2>
+            <button
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg transition-colors duration-200 flex items-center space-x-2"
+              onClick={() => {
+                const curlCommand = `curl -X POST \\
+${
+  deployment?.external_ip
+    ? `http://${deployment.external_ip}`
+    : deployment?.public_url || "http://[DEPLOYMENT-IP]"
+}/v1/completions \\
+-H "Content-Type: application/json" \\
+-d '{  
+  "model": "${deployment?.model || "deployed-model"}",
+  "prompt": "Write a poem about AI",
+  "max_tokens": 100,
+  "temperature": 0.7
+}'`;
+                navigator.clipboard.writeText(curlCommand);
+                setIsCopied(true);
+                setTimeout(() => setIsCopied(false), 2000);
+              }}
+            >
+              {isCopied ? (
+                <CheckCircle2 className="w-4 h-4" />
+              ) : (
+                <Copy className="w-4 h-4" />
+              )}
+              <span>{isCopied ? "Copied!" : "Copy to Clipboard"}</span>
+            </button>
+          </div>
+          <div className="bg-gray-800/50 backdrop-blur-sm shadow-xl rounded-xl p-6 border border-gray-700/50">
+            <h3 className="text-lg font-medium mb-4 text-white">
               Completions API
             </h3>
-            <div className="bg-gray-900 p-3 rounded-md text-sm font-mono overflow-x-auto">
-              <pre className="text-green-400 whitespace-pre-wrap break-all">
+            <div className="bg-gray-900/50 p-4 rounded-lg border border-gray-700/50 overflow-x-auto">
+              <pre className="text-sm text-green-400 whitespace-pre-wrap">
                 {`curl -X POST \\
 ${
   deployment?.external_ip
@@ -313,83 +404,7 @@ ${
   "temperature": 0.7
 }'`}
               </pre>
-              <button
-                className="mt-2 text-xs bg-blue-600 hover:bg-blue-700 text-white py-1 px-2 rounded"
-                onClick={() => {
-                  const curlCommand = `curl -X POST \\
-${
-  deployment?.external_ip
-    ? `http://${deployment.external_ip}`
-    : deployment?.public_url || "http://[DEPLOYMENT-IP]"
-}/v1/completions \\
--H "Content-Type: application/json" \\
--d '{  
-  "model": "${deployment?.model || "deployed-model"}",
-  "prompt": "Write a poem about AI",
-  "max_tokens": 100,
-  "temperature": 0.7
-}'`;
-                  navigator.clipboard.writeText(curlCommand);
-                  alert("Curl command copied to clipboard!");
-                }}
-              >
-                Copy to Clipboard
-              </button>
             </div>
-          </div>
-        </div>
-
-        {/* vLLM Pod Logs Section */}
-        <div className="space-y-2">
-          <div className="flex justify-between items-center mb-2">
-            <h2 className="text-lg font-semibold text-white">vLLM Pod Logs</h2>
-            <div className="flex space-x-2">
-              <button
-                className="px-3 py-1 rounded text-sm bg-gray-600 hover:bg-gray-700 text-white"
-                onClick={() => {
-                  refetchLogs();
-                }}
-              >
-                Refresh Logs
-              </button>
-              <button
-                className={`px-3 py-1 rounded text-sm ${
-                  isStreamingLogs
-                    ? "bg-red-600 hover:bg-red-700 text-white"
-                    : "bg-blue-600 hover:bg-blue-700 text-white"
-                }`}
-                onClick={() => {
-                  if (!isStreamingLogs) {
-                    // Start streaming logs
-                    setLogMessages([]);
-                    setIsStreamingLogs(true);
-                    // Also fetch logs once to populate initial data
-                    refetchLogs();
-                  } else {
-                    // Stop streaming logs
-                    setIsStreamingLogs(false);
-                  }
-                }}
-              >
-                {isStreamingLogs ? "Stop Streaming" : "Start Streaming Logs"}
-              </button>
-            </div>
-          </div>
-          <div className="rounded-md border border-gray-700 bg-black text-white p-4 h-96 overflow-y-auto font-mono text-sm">
-            {logMessages.length === 0 ? (
-              <div className="text-gray-400">
-                {isStreamingLogs
-                  ? "Waiting for logs..."
-                  : 'Click "Start Streaming Logs" to view vLLM pod logs'}
-              </div>
-            ) : (
-              logMessages.map((entry, index) => (
-                <div key={index} className="whitespace-pre-wrap mb-1">
-                  {typeof entry === "string" ? entry : JSON.stringify(entry)}
-                </div>
-              ))
-            )}
-            <div ref={logsEndRef} />
           </div>
         </div>
       </div>

@@ -8,6 +8,7 @@ import {
   MessageSquare,
   Server,
   LineChart,
+  Terminal,
 } from "lucide-react";
 
 const navItems = [
@@ -46,6 +47,12 @@ const navItems = [
     href: "/analytics",
     icon: LineChart,
     activeColor: "text-yellow-500",
+  },
+  {
+    title: "Logs",
+    href: "/logs",
+    icon: Terminal,
+    activeColor: "text-red-500",
   },
 ];
 

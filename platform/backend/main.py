@@ -1022,6 +1022,7 @@ async def get_deployment_status(namespace: str, release_name: str) -> Dict[str, 
         if helm_result.returncode == 0 and helm_result.stdout:
             try:
                 values = json.loads(helm_result.stdout)
+                # Try to get model information from different possible locations in Helm values
                 if (
                     "servingEngineSpec" in values
                     and "modelSpec" in values["servingEngineSpec"]
@@ -1031,8 +1032,50 @@ async def get_deployment_status(namespace: str, release_name: str) -> Dict[str, 
                     gpu_count = model_spec.get("requestGPU", 0)
                     cpu_count = model_spec.get("requestCPU", 0)
                     memory = model_spec.get("requestMemory", "")
+                # Check for model information in other common locations
+                elif "model" in values:
+                    # Direct model field
+                    model = values["model"]
+                    # Try to get resource information
+                    gpu_count = values.get("gpu_count", values.get("gpuCount", 0))
+                    cpu_count = values.get("cpu_count", values.get("cpuCount", 0))
+                    memory = values.get("memory", "")
+                elif "modelPath" in values:
+                    # Another common field name
+                    model = values["modelPath"]
+                    gpu_count = values.get("gpuCount", 0)
+                    cpu_count = values.get("cpuCount", 0)
+                    memory = values.get("memory", "")
+                # Look for model information in any field that might contain it
+                else:
+                    # Search for any field that might contain model information
+                    for key, value in values.items():
+                        if isinstance(value, str) and ("model" in key.lower() or "path" in key.lower()):
+                            model = value
+                            break
+                        elif isinstance(value, dict):
+                            # Check one level deeper
+                            for subkey, subvalue in value.items():
+                                if isinstance(subvalue, str) and ("model" in subkey.lower() or "path" in subkey.lower()):
+                                    model = subvalue
+                                    break
+                            if model != "unknown":
+                                break
+                
+                # If we still don't have model info, try to extract from image name
+                if model == "unknown" and image != "unknown":
+                    # Sometimes the model name is part of the image tag
+                    image_parts = image.split(":")
+                    if len(image_parts) > 1 and image_parts[1] != "latest":
+                        model = image_parts[1]
+                
+                # Log the values we found for debugging
+                logger.info(f"Model info for {release_name}: model={model}, gpu={gpu_count}, cpu={cpu_count}, memory={memory}")
+                
             except json.JSONDecodeError:
-                pass
+                logger.error(f"Failed to parse Helm values JSON for {release_name}")
+            except Exception as e:
+                logger.error(f"Error extracting model info from Helm values: {str(e)}")
 
         # Determine detailed status
         pod_status = {}
@@ -1309,6 +1352,22 @@ async def get_enhanced_deployment_status(
         else:
             deployment_status["llm_status"] = "Starting"
             deployment_status["ui_status"] = "pending"
+        
+        # Even if not running, we should still try to get model information if it's unknown
+        if deployment_status["model"] == "unknown":
+            # Try to get model info from the deployment name
+            try:
+                # Check if the release name contains model information
+                release_parts = release_name.split("-")
+                for part in release_parts:
+                    # Common model name patterns
+                    if any(model_name in part.lower() for model_name in ["llama", "gemma", "mistral", "gpt", "falcon", "phi", "bert"]):
+                        deployment_status["model"] = part
+                        logger.info(f"Extracted model name '{part}' from release name '{release_name}'")
+                        break
+            except Exception as e:
+                logger.error(f"Error extracting model from release name: {str(e)}")
+        
         return deployment_status
 
     # Check model readiness by querying the model endpoint
@@ -1453,16 +1512,35 @@ async def list_deployments_endpoint(
             if namespace and deployment.get("namespace") != namespace:
                 continue
 
-            # Create a deployment list item with only the necessary information for the UI
+            # Get basic deployment information
+            deployment_status = deployment.get("status", "unknown")
+            model_name = deployment.get("model_path", "unknown")
+            health_status = deployment.get("llm_status", "unknown")
+            ready = deployment.get("llm_ready", False)
+            
+            # If status is Running but health_status is unknown, set it to Ready
+            if deployment_status == "Running" and health_status == "unknown":
+                health_status = "Ready"
+                ready = True
+                logger.info(f"Setting deployment {deployment.get('release_name')} as ready because it has Running status")
+            
+            # Check if the deployment has an external IP, which indicates it's likely ready
+            external_ip = deployment.get("external_ip")
+            if external_ip and health_status == "unknown":
+                health_status = "Ready"
+                ready = True
+                logger.info(f"Setting deployment {deployment.get('release_name')} as ready because it has an external IP: {external_ip}")
+            
+            # Create a deployment list item with improved values
             deployment_item = DeploymentListItem(
                 deployment_id=deployment_id,
                 name=deployment.get("release_name"),
                 namespace=deployment.get("namespace"),
-                status=deployment.get("status", "unknown"),
-                model=deployment.get("model_path", "unknown"),
+                status=deployment_status,
+                model=model_name,
                 created_at=deployment.get("created_at", datetime.now().isoformat()),
-                ready=deployment.get("llm_ready", False),
-                health_status=deployment.get("llm_status", "unknown"),
+                ready=ready,
+                health_status=health_status,
             )
             deployments.append(deployment_item)
 
@@ -1501,16 +1579,50 @@ async def list_deployments_endpoint(
                         release_namespace, release_name
                     )
 
-                    # Create a deployment list item
+                    # Try to extract model name from release name if it's still unknown
+                    model_name = status.get("model", "unknown")
+                    if model_name == "unknown":
+                        # Check if the release name contains model information
+                        release_parts = release_name.split("-")
+                        for part in release_parts:
+                            # Common model name patterns
+                            if any(model_name in part.lower() for model_name in ["llama", "gemma", "mistral", "gpt", "falcon", "phi", "bert"]):
+                                model_name = part
+                                logger.info(f"Extracted model name '{part}' from release name '{release_name}'")
+                                break
+                    
+                    # Determine a more descriptive status if it's unknown
+                    deployment_status = status.get("status", "unknown")
+                    if deployment_status == "unknown":
+                        deployment_status = "Deployed"  # Better default than "unknown"
+                    
+                    # Get health status and ready flag
+                    health_status = status.get("llm_status", "unknown")
+                    ready = status.get("llm_ready", False)
+                    
+                    # If status is Running but health_status is unknown, set it to Ready
+                    if deployment_status == "Running" and health_status == "unknown":
+                        health_status = "Ready"
+                        ready = True
+                        logger.info(f"Setting deployment {release_name} as ready because it has Running status")
+                    
+                    # Check if the deployment has an external IP, which indicates it's likely ready
+                    external_ip = status.get("external_ip")
+                    if external_ip and health_status == "unknown":
+                        health_status = "Ready"
+                        ready = True
+                        logger.info(f"Setting deployment {release_name} as ready because it has an external IP: {external_ip}")
+                    
+                    # Create a deployment list item with improved values
                     deployment_item = DeploymentListItem(
                         deployment_id=deployment_id,
                         name=release_name,
                         namespace=release_namespace,
-                        status=status.get("status", "unknown"),
-                        model=status.get("model", "unknown"),
+                        status=deployment_status,
+                        model=model_name,
                         created_at=release.get("updated", datetime.now().isoformat()),
-                        ready=status.get("llm_ready", False),
-                        health_status=status.get("llm_status", "unknown"),
+                        ready=ready,
+                        health_status=health_status,
                     )
                     deployments.append(deployment_item)
 
@@ -1603,6 +1715,16 @@ async def get_deployment(deployment_id: str):
 
         logger.error(traceback.format_exc())
 
+    # Set default health status and ready flag based on deployment state
+    health_status = enhanced_status.get("llm_status", "unknown")
+    ready = enhanced_status.get("llm_ready", False)
+    
+    # If we have an external IP but health status is still unknown, the deployment is likely ready
+    if external_ip and health_status == "unknown":
+        health_status = "Ready"
+        ready = True
+        logger.info(f"Setting deployment {release_name} as ready because it has an external IP: {external_ip}")
+    
     # Construct the response
     response = DeploymentStatus(
         deployment_id=deployment_id,
@@ -1617,8 +1739,8 @@ async def get_deployment(deployment_id: str):
         memory=deployment.get("memory", ""),
         image=f"{deployment.get('image_repo', 'vllm/vllm-openai')}:{deployment.get('image_tag', 'latest')}",
         service_url=enhanced_status.get("service_url", ""),
-        ready=enhanced_status.get("ready", False),
-        health_status=enhanced_status.get("health_status", "unknown"),
+        ready=ready,
+        health_status=health_status,
         external_ip=external_ip,  # Set the external IP directly
     )
 

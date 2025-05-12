@@ -3,11 +3,17 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Card } from "../components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../components/ui/select";
 import { useDeployments, useDeployment } from "~/lib/api";
 import { Slider } from "../components/ui/slider";
 
-import type { ChatMessage } from '~/lib/api';
+import type { ChatMessage } from "~/lib/api";
 
 interface Message extends ChatMessage {}
 
@@ -39,11 +45,12 @@ export default function Completions() {
   const [maxTokens, setMaxTokens] = useState(100);
   const [temperature, setTemperature] = useState(0.7);
   const [selectedDeployment, setSelectedDeployment] = useState<string>("");
-  
+
   const [loading, setLoading] = useState(false);
   const [streamingContent, setStreamingContent] = useState("");
-  
-  const { data: deployments = [], isLoading: isLoadingDeployments } = useDeployments();
+
+  const { data: deployments = [], isLoading: isLoadingDeployments } =
+    useDeployments();
   const { data: deployment } = useDeployment(selectedDeployment);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -61,9 +68,9 @@ export default function Completions() {
     if (!input.trim() || !selectedDeployment || !deployment?.public_url) return;
 
     // Add user message immediately
-    const userMessage: Message = { role: 'user', content: input };
-    setMessages(prev => [...prev, userMessage]);
-    
+    const userMessage: Message = { role: "user", content: input };
+    setMessages((prev) => [...prev, userMessage]);
+
     setInput("");
     setLoading(true);
     setStreamingContent("");
@@ -71,23 +78,28 @@ export default function Completions() {
     try {
       // Convert chat history to text prompt
       const historyText = messages
-        .map(msg => `${msg.role === 'user' ? 'Human' : 'Assistant'}: ${msg.content}`)
-        .join('\n');
-      
-      const fullPrompt = `${historyText}${historyText ? '\n' : ''}Human: ${input}\nAssistant:`;
+        .map(
+          (msg) =>
+            `${msg.role === "user" ? "Human" : "Assistant"}: ${msg.content}`
+        )
+        .join("\n");
+
+      const fullPrompt = `${historyText}${
+        historyText ? "\n" : ""
+      }Human: ${input}\nAssistant:`;
 
       const response = await fetch(`${deployment.public_url}/v1/completions`, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*'
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*",
         },
         body: JSON.stringify({
           model: deployment.model,
           prompt: fullPrompt,
           max_tokens: maxTokens,
           temperature: temperature,
-          stream: true
+          stream: true,
         }),
       });
 
@@ -104,21 +116,21 @@ export default function Completions() {
         if (done) break;
 
         const chunk = decoder.decode(value);
-        const lines = chunk.split('\n').filter(line => line.trim() !== '');
+        const lines = chunk.split("\n").filter((line) => line.trim() !== "");
 
         for (const line of lines) {
-          if (line.startsWith('data: ')) {
+          if (line.startsWith("data: ")) {
             const data = line.slice(6);
-            if (data === '[DONE]') continue;
+            if (data === "[DONE]") continue;
 
             try {
               const parsed = JSON.parse(data);
-              const content = parsed.choices[0]?.text || '';
+              const content = parsed.choices[0]?.text || "";
               fullAssistantResponse += content;
               setStreamingContent(fullAssistantResponse);
               setLoading(false);
             } catch (e) {
-              console.error('Error parsing SSE:', e);
+              console.error("Error parsing SSE:", e);
             }
           }
         }
@@ -126,17 +138,20 @@ export default function Completions() {
 
       // Add assistant response to messages
       if (fullAssistantResponse) {
-        const assistantMessage: Message = { role: 'assistant', content: fullAssistantResponse };
-        setMessages(prev => [...prev, assistantMessage]);
+        const assistantMessage: Message = {
+          role: "assistant",
+          content: fullAssistantResponse,
+        };
+        setMessages((prev) => [...prev, assistantMessage]);
         setStreamingContent("");
       }
     } catch (error) {
-      console.error('Error:', error);
-      const errorMessage: Message = { 
-        role: 'assistant', 
-        content: 'Sorry, there was an error processing your request.' 
+      console.error("Error:", error);
+      const errorMessage: Message = {
+        role: "assistant",
+        content: "Sorry, there was an error processing your request.",
       };
-      setMessages(prev => [...prev, errorMessage]);
+      setMessages((prev) => [...prev, errorMessage]);
     } finally {
       setLoading(false);
     }
@@ -144,35 +159,38 @@ export default function Completions() {
 
   // Truncate deployment name for display
   const getDeploymentDisplayName = (deploymentId: string) => {
-    const dep = deployments.find(d => d.deployment_id === deploymentId);
-    if (!dep) return 'Select deployment';
-    
-    const modelName = dep.model.split('/').pop() || '';
-    const name = dep.name.length > 15 ? dep.name.slice(0, 12) + '...' : dep.name;
+    const dep = deployments.find((d) => d.deployment_id === deploymentId);
+    if (!dep) return "Select deployment";
+
+    const modelName = dep.model.split("/").pop() || "";
+    const name =
+      dep.name.length > 15 ? dep.name.slice(0, 12) + "..." : dep.name;
     return `${name} (${modelName})`;
   };
 
   return (
-    <div className="container mx-auto py-6 space-y-6 h-screen flex flex-col">
+    <div className="container mx-auto p-6 space-y-6 h-screen flex flex-col">
       <h1 className="text-2xl font-bold">Chat Completions</h1>
-      
+
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 flex-1 overflow-hidden">
         <div className="md:col-span-3 flex flex-col">
           {/* Chat Messages */}
-          <div 
+          <div
             ref={messagesContainerRef}
             className="bg-muted rounded-lg p-4 overflow-y-auto mb-4 space-y-4 h-[calc(100vh-200px)]"
           >
             {messages.map((msg, i) => (
               <div
                 key={i}
-                className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                className={`flex ${
+                  msg.role === "user" ? "justify-end" : "justify-start"
+                }`}
               >
                 <div
                   className={`max-w-[80%] rounded-lg p-3 ${
-                    msg.role === 'user'
-                      ? 'bg-primary text-primary-foreground'
-                      : 'bg-secondary'
+                    msg.role === "user"
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-secondary"
                   }`}
                 >
                   <pre className="whitespace-pre-wrap break-words font-sans">
@@ -199,7 +217,7 @@ export default function Completions() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') {
+                if (e.key === "Enter") {
                   e.preventDefault();
                   handleSubmit();
                 }
@@ -207,11 +225,15 @@ export default function Completions() {
               placeholder="Type your message..."
               className="flex-1"
             />
-            <Button 
-              onClick={handleSubmit} 
-              disabled={!selectedDeployment || !deployment?.public_url || loading}
+            <Button
+              onClick={handleSubmit}
+              disabled={
+                !selectedDeployment || !deployment?.public_url || loading
+              }
             >
-              {loading || (selectedDeployment && !deployment?.public_url) ? 'Loading...' : 'Send'}
+              {loading || (selectedDeployment && !deployment?.public_url)
+                ? "Loading..."
+                : "Send"}
             </Button>
           </div>
         </div>
@@ -226,13 +248,16 @@ export default function Completions() {
             >
               <SelectTrigger className="w-full max-w-[300px] truncate">
                 <SelectValue placeholder="Select deployment">
-                  {selectedDeployment ? getDeploymentDisplayName(selectedDeployment) : 'Select deployment'}
+                  {selectedDeployment
+                    ? getDeploymentDisplayName(selectedDeployment)
+                    : "Select deployment"}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {deployments.map((d) => (
                   <SelectItem key={d.deployment_id} value={d.deployment_id}>
-                    {d.name.length > 20 ? d.name.slice(0, 17) + '...' : d.name} ({d.model.split('/').pop()})
+                    {d.name.length > 20 ? d.name.slice(0, 17) + "..." : d.name}{" "}
+                    ({d.model.split("/").pop()})
                   </SelectItem>
                 ))}
               </SelectContent>

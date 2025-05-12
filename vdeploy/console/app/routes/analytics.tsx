@@ -96,6 +96,28 @@ export default function Analytics() {
     selectedDeployment !== null,
     timeInterval
   );
+  
+  // New metrics - Request metrics
+  const {
+    data: requestMetrics,
+    isLoading: isLoadingRequestMetrics,
+  } = useCloudMetrics(
+    selectedDeployment,
+    ["requests_completed", "requests_per_second", "mean_tokens_per_request"],
+    selectedDeployment !== null,
+    timeInterval
+  );
+  
+  // New metrics - GPU metrics
+  const {
+    data: gpuMetrics,
+    isLoading: isLoadingGpuMetrics,
+  } = useCloudMetrics(
+    selectedDeployment,
+    ["gpu_utilization", "gpu_cache_usage"],
+    selectedDeployment !== null,
+    timeInterval
+  );
 
   // Chart data state
   const [tokenChartData, setTokenChartData] = React.useState<
@@ -111,6 +133,15 @@ export default function Analytics() {
 
   const [timeToFirstTokenChartData, setTimeToFirstTokenChartData] =
     React.useState<Array<{ time: string; ttft: number }>>([]);
+    
+  // New chart data states
+  const [requestChartData, setRequestChartData] = React.useState<
+    Array<{ time: string; requestsCompleted: number; requestsPerSecond: number; meanTokensPerRequest: number }>
+  >([]);
+  
+  const [gpuChartData, setGpuChartData] = React.useState<
+    Array<{ time: string; gpuUtilization: number; gpuCacheUsage: number }>
+  >([]);
 
   // Process token metrics data for the chart
   React.useEffect(() => {
@@ -303,7 +334,7 @@ export default function Analytics() {
 
   // Process time to first token metrics data for the chart
   React.useEffect(() => {
-    if (!timeToFirstTokenMetrics?.metrics?.time_to_first_token) {
+    if (!timeToFirstTokenMetrics?.metrics) {
       setTimeToFirstTokenChartData([]);
       return;
     }
@@ -333,6 +364,179 @@ export default function Analytics() {
       setTimeToFirstTokenChartData([]);
     }
   }, [timeToFirstTokenMetrics]);
+  
+  // Process request metrics data for the chart
+  React.useEffect(() => {
+    if (!requestMetrics?.metrics) {
+      setRequestChartData([]);
+      return;
+    }
+
+    try {
+      const timeMap: Record<
+        string,
+        { time: string; requestsCompleted: number; requestsPerSecond: number; meanTokensPerRequest: number }
+      > = {};
+
+      // Process requests_completed data
+      const requestsCompletedData = requestMetrics.metrics.requests_completed;
+      if (requestsCompletedData && !requestsCompletedData.error && requestsCompletedData.values) {
+        const processedData = processMetricDataForChart(
+          requestsCompletedData,
+          "value"
+        ) as Array<{
+          time: string;
+          [key: string]: number | string;
+        }>;
+
+        processedData.forEach(({ time, value }) => {
+          if (!timeMap[time]) {
+            timeMap[time] = {
+              time,
+              requestsCompleted: Number(value) || 0,
+              requestsPerSecond: 0,
+              meanTokensPerRequest: 0,
+            };
+          } else {
+            timeMap[time].requestsCompleted = Number(value) || 0;
+          }
+        });
+      }
+
+      // Process requests_per_second data
+      const requestsPerSecondData = requestMetrics.metrics.requests_per_second;
+      if (requestsPerSecondData && !requestsPerSecondData.error && requestsPerSecondData.values) {
+        const processedData = processMetricDataForChart(
+          requestsPerSecondData,
+          "value"
+        ) as Array<{
+          time: string;
+          [key: string]: number | string;
+        }>;
+
+        processedData.forEach(({ time, value }) => {
+          if (!timeMap[time]) {
+            timeMap[time] = {
+              time,
+              requestsCompleted: 0,
+              requestsPerSecond: Number(value) || 0,
+              meanTokensPerRequest: 0,
+            };
+          } else {
+            timeMap[time].requestsPerSecond = Number(value) || 0;
+          }
+        });
+      }
+
+      // Process mean_tokens_per_request data
+      const meanTokensPerRequestData = requestMetrics.metrics.mean_tokens_per_request;
+      if (meanTokensPerRequestData && !meanTokensPerRequestData.error && meanTokensPerRequestData.values) {
+        const processedData = processMetricDataForChart(
+          meanTokensPerRequestData,
+          "value"
+        ) as Array<{
+          time: string;
+          [key: string]: number | string;
+        }>;
+
+        processedData.forEach(({ time, value }) => {
+          if (!timeMap[time]) {
+            timeMap[time] = {
+              time,
+              requestsCompleted: 0,
+              requestsPerSecond: 0,
+              meanTokensPerRequest: Number(value) || 0,
+            };
+          } else {
+            timeMap[time].meanTokensPerRequest = Number(value) || 0;
+          }
+        });
+      }
+
+      // Convert the timeMap to an array and sort by time
+      const chartData = Object.values(timeMap).sort((a, b) =>
+        a.time.localeCompare(b.time)
+      );
+
+      setRequestChartData(chartData);
+    } catch (error) {
+      console.error("Error processing request metrics data:", error);
+      setRequestChartData([]);
+    }
+  }, [requestMetrics]);
+  
+  // Process GPU metrics data for the chart
+  React.useEffect(() => {
+    if (!gpuMetrics?.metrics) {
+      setGpuChartData([]);
+      return;
+    }
+
+    try {
+      const timeMap: Record<
+        string,
+        { time: string; gpuUtilization: number; gpuCacheUsage: number }
+      > = {};
+
+      // Process gpu_utilization data
+      const gpuUtilizationData = gpuMetrics.metrics.gpu_utilization;
+      if (gpuUtilizationData && !gpuUtilizationData.error && gpuUtilizationData.values) {
+        const processedData = processMetricDataForChart(
+          gpuUtilizationData,
+          "value"
+        ) as Array<{
+          time: string;
+          [key: string]: number | string;
+        }>;
+
+        processedData.forEach(({ time, value }) => {
+          if (!timeMap[time]) {
+            timeMap[time] = {
+              time,
+              gpuUtilization: Number(value) || 0,
+              gpuCacheUsage: 0,
+            };
+          } else {
+            timeMap[time].gpuUtilization = Number(value) || 0;
+          }
+        });
+      }
+
+      // Process gpu_cache_usage data
+      const gpuCacheUsageData = gpuMetrics.metrics.gpu_cache_usage;
+      if (gpuCacheUsageData && !gpuCacheUsageData.error && gpuCacheUsageData.values) {
+        const processedData = processMetricDataForChart(
+          gpuCacheUsageData,
+          "value"
+        ) as Array<{
+          time: string;
+          [key: string]: number | string;
+        }>;
+
+        processedData.forEach(({ time, value }) => {
+          if (!timeMap[time]) {
+            timeMap[time] = {
+              time,
+              gpuUtilization: 0,
+              gpuCacheUsage: Number(value) || 0,
+            };
+          } else {
+            timeMap[time].gpuCacheUsage = Number(value) || 0;
+          }
+        });
+      }
+
+      // Convert the timeMap to an array and sort by time
+      const chartData = Object.values(timeMap).sort((a, b) =>
+        a.time.localeCompare(b.time)
+      );
+
+      setGpuChartData(chartData);
+    } catch (error) {
+      console.error("Error processing GPU metrics data:", error);
+      setGpuChartData([]);
+    }
+  }, [gpuMetrics]);
 
   if (isLoadingDeployments) {
     return (
@@ -673,6 +877,150 @@ export default function Analytics() {
             <div className="mt-2 text-xs text-gray-500">
               <p>
                 Shows time taken to generate the first token in milliseconds
+              </p>
+            </div>
+          </div>
+
+          {/* Request Metrics Chart */}
+          <div className="bg-gray-900 rounded-lg p-4 border border-gray-700">
+            <h4 className="text-md font-medium mb-2">Request Metrics</h4>
+            {isLoadingRequestMetrics ? (
+              <div className="flex justify-center items-center h-64">
+                <p className="text-gray-400">Loading request metrics data...</p>
+              </div>
+            ) : requestChartData.length > 0 ? (
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart
+                    data={requestChartData}
+                    margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke="#444" />
+                    <XAxis
+                      dataKey="time"
+                      stroke="#888"
+                      tick={{ fill: "#888" }}
+                      tickFormatter={(value) =>
+                        value.split(":")[0] + ":" + value.split(":")[1]
+                      }
+                    />
+                    <YAxis stroke="#888" tick={{ fill: "#888" }} />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: "#333",
+                        borderColor: "#555",
+                      }}
+                      labelStyle={{ color: "#fff" }}
+                      formatter={(value, name) => {
+                        if (name === "requestsCompleted") {
+                          return [Number(value).toLocaleString(), "Completed Requests"];
+                        } else if (name === "requestsPerSecond") {
+                          return [Number(value).toFixed(2), "Requests/s"];
+                        } else {
+                          return [Number(value).toFixed(1), "Tokens/Request"];
+                        }
+                      }}
+                    />
+                    <Legend />
+                    <Line
+                      type="monotone"
+                      dataKey="requestsCompleted"
+                      stroke="#60a5fa"
+                      dot={false}
+                      name="Completed Requests"
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="requestsPerSecond"
+                      stroke="#f59e0b"
+                      dot={false}
+                      name="Requests/s"
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="meanTokensPerRequest"
+                      stroke="#a78bfa"
+                      dot={false}
+                      name="Tokens/Request"
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <div className="flex justify-center items-center h-64">
+                <p className="text-gray-400">No request metrics data available</p>
+              </div>
+            )}
+            <div className="mt-2 text-xs text-gray-500">
+              <p>
+                Shows completed requests, requests per second, and average tokens per request
+              </p>
+            </div>
+          </div>
+
+          {/* GPU Metrics Chart */}
+          <div className="bg-gray-900 rounded-lg p-4 border border-gray-700">
+            <h4 className="text-md font-medium mb-2">GPU Metrics</h4>
+            {isLoadingGpuMetrics ? (
+              <div className="flex justify-center items-center h-64">
+                <p className="text-gray-400">Loading GPU metrics data...</p>
+              </div>
+            ) : gpuChartData.length > 0 ? (
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart
+                    data={gpuChartData}
+                    margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke="#444" />
+                    <XAxis
+                      dataKey="time"
+                      stroke="#888"
+                      tick={{ fill: "#888" }}
+                      tickFormatter={(value) =>
+                        value.split(":")[0] + ":" + value.split(":")[1]
+                      }
+                    />
+                    <YAxis stroke="#888" tick={{ fill: "#888" }} />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: "#333",
+                        borderColor: "#555",
+                      }}
+                      labelStyle={{ color: "#fff" }}
+                      formatter={(value, name) => {
+                        if (name === "gpuUtilization" || name === "gpuCacheUsage") {
+                          return [Number(value).toFixed(1) + "%", name === "gpuUtilization" ? "GPU Utilization" : "GPU Cache Usage"];
+                        }
+                        return [value, name];
+                      }}
+                    />
+                    <Legend />
+                    <Line
+                      type="monotone"
+                      dataKey="gpuUtilization"
+                      stroke="#10b981"
+                      dot={false}
+                      name="GPU Utilization"
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="gpuCacheUsage"
+                      stroke="#ec4899"
+                      dot={false}
+                      name="GPU Cache Usage"
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <div className="flex justify-center items-center h-64">
+                <p className="text-gray-400">No GPU metrics data available</p>
+              </div>
+            )}
+            <div className="mt-2 text-xs text-gray-500">
+              <p>
+                Shows GPU utilization percentage and GPU cache usage percentage
               </p>
             </div>
           </div>
