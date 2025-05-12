@@ -1,7 +1,7 @@
 import * as React from "react";
 import { useForm } from "react-hook-form";
 import { Button } from "../components/ui/button";
-import { useNavigate } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 import {
   Form,
   FormControl,
@@ -24,19 +24,6 @@ import {
 import { AlertCircle, InfoIcon } from "lucide-react";
 import { Alert, AlertTitle, AlertDescription } from "~/components/ui/alert";
 import { useClusters } from "../lib/cluster-api";
-
-// Predefined options for select components
-const MODEL_OPTIONS = [
-  { value: "google/gemma-1.1-2b-it", label: "Google Gemma 1.1 2B (Instruct)" },
-  { value: "google/gemma-1.1-7b-it", label: "Google Gemma 1.1 7B (Instruct)" },
-  { value: "meta-llama/Llama-2-7b-chat-hf", label: "Meta Llama 2 7B (Chat)" },
-  { value: "meta-llama/Llama-2-13b-chat-hf", label: "Meta Llama 2 13B (Chat)" },
-  {
-    value: "mistralai/Mistral-7B-Instruct-v0.2",
-    label: "Mistral 7B Instruct v0.2",
-  },
-  { value: "microsoft/phi-2", label: "Microsoft Phi-2" },
-];
 
 const GPU_TYPE_OPTIONS = [
   { value: "nvidia-l4", label: "NVIDIA L4" },
@@ -66,16 +53,23 @@ const ENVIRONMENT_OPTIONS = [
 
 export default function NewDeployment() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const modelFromUrl = searchParams.get("model");
+
   const { mutate: createDeployment, isPending: isSubmitting } =
     useCreateDeployment();
   const [error, setError] = React.useState<string | null>(null);
-  
+
   // Fetch available clusters
-  const { data: clusters, isLoading: isClustersLoading, error: clustersError } = useClusters();
+  const {
+    data: clusters,
+    isLoading: isClustersLoading,
+    error: clustersError,
+  } = useClusters();
 
   const form = useForm<DeploymentFormData>({
     defaultValues: {
-      model_path: "google/gemma-1.1-2b-it",
+      model_path: modelFromUrl || "google/gemma-1.1-2b-it",
       release_name: "gemma-test",
       // namespace removed (using release_name as namespace)
       gpu_type: "nvidia-l4",
@@ -191,20 +185,26 @@ export default function NewDeployment() {
                     <SelectContent>
                       {clusters && clusters.length > 0 ? (
                         clusters.map((cluster) => (
-                          <SelectItem key={cluster.cluster_id} value={cluster.cluster_id}>
+                          <SelectItem
+                            key={cluster.cluster_id}
+                            value={cluster.cluster_id}
+                          >
                             {cluster.cluster_name} ({cluster.zone})
                           </SelectItem>
                         ))
                       ) : (
                         <SelectItem value="no-clusters" disabled>
-                          {isClustersLoading ? "Loading clusters..." : "No clusters available"}
+                          {isClustersLoading
+                            ? "Loading clusters..."
+                            : "No clusters available"}
                         </SelectItem>
                       )}
                     </SelectContent>
                   </Select>
                 </FormControl>
                 <FormDescription>
-                  Select the Kubernetes cluster where this model will be deployed
+                  Select the Kubernetes cluster where this model will be
+                  deployed
                 </FormDescription>
                 <FormMessage />
               </FormItem>
@@ -217,25 +217,24 @@ export default function NewDeployment() {
             render={({ field }) => (
               <FormItem>
                 <FormLabel>Model</FormLabel>
-                <FormControl>
-                  <Select
-                    onValueChange={field.onChange}
-                    defaultValue={field.value}
+                <div className="flex gap-2">
+                  <FormControl>
+                    <Input
+                      {...field}
+                      placeholder="Enter HuggingFace model path"
+                    />
+                  </FormControl>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => navigate("/models")}
                   >
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Select a model" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {MODEL_OPTIONS.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </FormControl>
+                    Browse
+                  </Button>
+                </div>
                 <FormDescription>
-                  The LLM model to deploy from Hugging Face
+                  Enter a valid HuggingFace model path (e.g.,
+                  google/gemma-1.1-2b-it)
                 </FormDescription>
                 <FormMessage />
               </FormItem>
