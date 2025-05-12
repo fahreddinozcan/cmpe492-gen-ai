@@ -25,6 +25,7 @@ import queue
 import requests
 from urllib.parse import quote, urlencode
 import re
+import time
 
 # Google Cloud libraries
 from google.auth import default
@@ -2908,133 +2909,6 @@ async def websocket_cluster_logs(websocket: WebSocket, cluster_id: str):
             pass
 
 
-@app.get("/deployments/{deployment_id}/metrics")
-async def get_deployment_metrics(
-    deployment_id: str, metric_name: Optional[str] = Query(None)
-):
-    """Get metrics for a specific deployment from Google Cloud Managed Prometheus"""
-    try:
-        # Get deployment details first
-        if deployment_id not in active_deployments:
-            raise HTTPException(status_code=404, detail="Deployment not found")
-
-        deployment = active_deployments[deployment_id]
-        namespace = deployment.get("namespace")
-        release_name = deployment.get("name")
-
-        if not namespace or not release_name:
-            return MetricsResponse(
-                success=False, message="Deployment information incomplete"
-            )
-
-        # Construct Prometheus query to get metrics for this deployment
-        # Use the Google Cloud Managed Prometheus query endpoint
-        # This is a simplified example - in production, you would use proper authentication
-
-        # Get the project ID from environment or configuration
-        project_id = os.environ.get("GCP_PROJECT_ID", "")
-        if not project_id:
-            return MetricsResponse(
-                success=False, message="GCP Project ID not configured"
-            )
-
-        # Query parameters
-        query_params = {
-            "cluster": f"projects/{project_id}/locations/global/clusters/default",  # Adjust for your actual cluster
-            "query": f"",
-        }
-
-        # Build the query based on the metric name
-        if metric_name:
-            # Query for a specific metric
-            if metric_name == "gpu_utilization":
-                query_params["query"] = (
-                    f'nvidia_gpu_utilization_percent{{namespace="{namespace}", pod=~".*{release_name}.*"}}'
-                )
-            elif metric_name == "memory_usage":
-                query_params["query"] = (
-                    f'container_memory_usage_bytes{{namespace="{namespace}", pod=~".*{release_name}.*"}}'
-                )
-            elif metric_name == "cpu_usage":
-                query_params["query"] = (
-                    f'container_cpu_usage_seconds_total{{namespace="{namespace}", pod=~".*{release_name}.*"}}'
-                )
-            elif metric_name == "request_count":
-                query_params["query"] = (
-                    f'vllm_http_request_total{{namespace="{namespace}", pod=~".*{release_name}.*"}}'
-                )
-            elif metric_name == "request_latency":
-                query_params["query"] = (
-                    f'vllm_request_latency_seconds{{namespace="{namespace}", pod=~".*{release_name}.*"}}'
-                )
-            else:
-                # Generic query for any metric name provided
-                query_params["query"] = (
-                    f'{metric_name}{{namespace="{namespace}", pod=~".*{release_name}.*"}}'
-                )
-        else:
-            # Default: get some basic metrics if no specific metric requested
-            query_params["query"] = (
-                f'nvidia_gpu_utilization_percent{{namespace="{namespace}", pod=~".*{release_name}.*"}}'
-            )
-
-        # Google Cloud Monitoring API URL for Prometheus queries
-        endpoint = f"https://monitoring.googleapis.com/v1/projects/{project_id}/location/global/prometheus/api/v1/query"
-
-        logger.info(
-            f"Querying Prometheus at {endpoint} with query: {query_params['query']}"
-        )
-
-        # In production, you'd use proper authentication with Google Cloud APIs
-        # This is a simplified mock implementation
-        try:
-            # Actual API call would use Google Cloud authentication
-            # response = requests.get(endpoint, params=query_params)
-            # if response.status_code != 200:
-            #     return MetricsResponse(
-            #         success=False,
-            #         message=f"Error querying Prometheus: {response.text}"
-            #     )
-            # metrics_data = response.json()
-
-            # For now, provide mock data for demo purposes
-            metrics_data = {
-                "status": "success",
-                "data": {
-                    "resultType": "vector",
-                    "result": [
-                        {
-                            "metric": {
-                                "__name__": metric_name
-                                or "nvidia_gpu_utilization_percent",
-                                "pod": f"{release_name}-vllm-0",
-                                "namespace": namespace,
-                            },
-                            "value": [1620000000, "65.2"],
-                        }
-                    ],
-                },
-            }
-
-            return MetricsResponse(
-                success=True,
-                message="Metrics retrieved successfully",
-                metrics=metrics_data,
-            )
-
-        except Exception as e:
-            logger.error(f"Error querying Prometheus: {str(e)}")
-            return MetricsResponse(
-                success=False, message=f"Error querying Prometheus: {str(e)}"
-            )
-
-    except Exception as e:
-        logger.error(f"Error retrieving metrics: {str(e)}")
-        return MetricsResponse(
-            success=False, message=f"Error retrieving metrics: {str(e)}"
-        )
-
-
 @app.post("/api/deployments/metrics/cloud")
 async def get_cloud_metrics(request: DeploymentMetricsRequest):
     """Get metrics for a deployment from Google Cloud Monitoring Service"""
@@ -3126,6 +3000,72 @@ async def get_cloud_metrics(request: DeploymentMetricsRequest):
         # Prepare results dictionary
         results = {}
 
+        # Helper method to format metric values for better readability
+        def _format_metric_value(metric_name, value):
+            """Format metric values for better readability based on the metric type"""
+            # Format time metrics in milliseconds
+            if "time" in metric_name.lower() and "seconds" in metric_name.lower():
+                return f"{value * 1000:.2f}"
+
+            # Format percentage metrics
+            elif (
+                "utilization" in metric_name.lower()
+                or "usage" in metric_name.lower()
+                or "rate" in metric_name.lower()
+            ):
+                return f"{value * 100:.2f}"
+
+            # Format throughput metrics with 2 decimal places
+            elif (
+                "throughput" in metric_name.lower()
+                or "per_second" in metric_name.lower()
+            ):
+                return f"{value:.2f}"
+
+            # Format token counts as integers
+            elif "tokens" in metric_name.lower() or "count" in metric_name.lower():
+                return f"{int(value)}"
+
+            # Default formatting with 2 decimal places
+            else:
+                return f"{value:.2f}"
+
+        # Helper method to determine the unit for a metric
+        def _get_metric_unit(metric_name):
+            """Determine the appropriate unit for a metric based on its name"""
+            # Time metrics
+            if (
+                "time_to_first_token" in metric_name
+                or "time_per_output_token" in metric_name
+            ):
+                return "ms"
+
+            # Percentage metrics
+            elif (
+                "utilization" in metric_name
+                or "usage" in metric_name
+                or "rate" in metric_name
+            ):
+                return "%"
+
+            # Throughput metrics
+            elif "throughput" in metric_name:
+                return "tokens/s"
+            elif "requests_per_second" in metric_name:
+                return "req/s"
+
+            # Token metrics
+            elif "tokens" in metric_name:
+                return "tokens"
+
+            # Request metrics
+            elif "requests" in metric_name:
+                return "requests"
+
+            # Default - no unit
+            else:
+                return ""
+
         # Get authentication credentials
         try:
             # This uses Application Default Credentials
@@ -3142,11 +3082,101 @@ async def get_cloud_metrics(request: DeploymentMetricsRequest):
             #     project_id = project
             #     logger.info(f"Using project ID from credentials: {project_id}")
 
-            # Get auth token
-            auth_token = "ya29.a0AW4XtxjKdT-7Kb-CFs7HM5eyZ0qVIgf_eUAJQsk382Xm83_T948yCS22n0khlh5ptXhlTB9eKNtIp4M3QSBq5z2L0MYFrCaCL6QaRSm6lo--Oj2RcGxaj1ab_zYZ-fCc7ILg8wcnivuK4cqM-54qmd81Tviqm-J0ke_IIf-q2aPKOT8aCgYKAfUSARQSFQHGX2MiG5Zv1dZ6aPFNWzizj3Rrzw0182"
-            auth_headers = {"Authorization": f"Bearer {auth_token}"}
+            # Enhanced token caching mechanism
+            # Use function attributes for token caching instead of global variables
+            # This approach is more robust and thread-safe
+            current_time = time.time()
 
-            logger.info(f"Successfully obtained Google Cloud authentication token")
+            # Check if we need to refresh the token
+            if (
+                not hasattr(get_cloud_metrics, "gcloud_auth_token")
+                or not hasattr(get_cloud_metrics, "gcloud_token_expiry")
+                or current_time >= getattr(get_cloud_metrics, "gcloud_token_expiry", 0)
+            ):
+
+                try:
+                    # Run gcloud command to get fresh access token
+                    logger.info("Fetching new Google Cloud authentication token")
+                    result = subprocess.run(
+                        ["gcloud", "auth", "print-access-token"],
+                        capture_output=True,
+                        text=True,
+                        check=True,
+                    )
+                    auth_token = result.stdout.strip()
+
+                    if not auth_token:
+                        raise ValueError("Empty authentication token received")
+
+                    # Set token expiration to 50 minutes from now (tokens typically last 60 minutes)
+                    # This gives us a 10-minute buffer before the actual expiration
+                    get_cloud_metrics.gcloud_auth_token = auth_token
+                    get_cloud_metrics.gcloud_token_expiry = current_time + (
+                        50 * 60
+                    )  # 50 minutes in seconds
+
+                    # Calculate remaining time until expiry for logging
+                    expiry_minutes = int(
+                        (get_cloud_metrics.gcloud_token_expiry - current_time) / 60
+                    )
+
+                    # Only log a portion of the token for security
+                    token_preview = auth_token[:10] + "..." if auth_token else "<empty>"
+                    logger.info(
+                        f"Successfully obtained new Google Cloud authentication token: {token_preview} (expires in {expiry_minutes} minutes)"
+                    )
+
+                except subprocess.SubprocessError as e:
+                    logger.error(
+                        f"Failed to get authentication token from gcloud: {str(e)}"
+                    )
+
+                    # Try to get token using alternative method if subprocess fails
+                    try:
+                        import google.auth
+                        from google.auth.transport.requests import (
+                            Request as GoogleAuthRequest,
+                        )
+
+                        logger.info("Attempting to get token using google.auth library")
+                        credentials, project = google.auth.default()
+
+                        if not credentials.valid:
+                            credentials.refresh(GoogleAuthRequest())
+
+                        auth_token = credentials.token
+                        get_cloud_metrics.gcloud_auth_token = auth_token
+                        get_cloud_metrics.gcloud_token_expiry = current_time + (50 * 60)
+
+                        token_preview = (
+                            auth_token[:10] + "..." if auth_token else "<empty>"
+                        )
+                        logger.info(
+                            f"Successfully obtained token using google.auth: {token_preview}"
+                        )
+
+                    except Exception as auth_e:
+                        logger.error(
+                            f"All authentication methods failed: {str(auth_e)}"
+                        )
+
+                        return MetricsResponse(
+                            success=False,
+                            message=f"Failed to get authentication token: {str(e)}. Alternative method also failed: {str(auth_e)}",
+                        )
+            else:
+                # Use cached token and log remaining validity time
+                auth_token = get_cloud_metrics.gcloud_auth_token
+                remaining_time = int(
+                    (get_cloud_metrics.gcloud_token_expiry - current_time) / 60
+                )
+                token_preview = auth_token[:10] + "..." if auth_token else "<empty>"
+                logger.info(
+                    f"Using cached Google Cloud authentication token: {token_preview} (valid for {remaining_time} more minutes)"
+                )
+
+            # Set auth headers with the token (cached or new)
+            auth_headers = {"Authorization": f"Bearer {auth_token}"}
         except Exception as e:
             logger.error(f"Error getting Google Cloud authentication: {str(e)}")
             return MetricsResponse(
@@ -3160,18 +3190,68 @@ async def get_cloud_metrics(request: DeploymentMetricsRequest):
         else:
             api_endpoint = f"https://monitoring.googleapis.com/v1/projects/{project_id}/location/global/prometheus/api/v1/query"
 
+        # Define specific metrics for vLLM dashboard with enhanced queries based on actual Prometheus metrics
+        # Use rate() for counters to get per-second rates over a time window
+        # This provides more useful metrics for monitoring performance trends
+
+        # Time window for rate calculations (5m = 5 minutes)
+        rate_window = "5m"
+        interval = "$__interval"
+
+        # Based on the screenshots, these are the actual metric names in Prometheus
+        vllm_dashboard_metrics = {
+            # Token counts and throughput - using actual metric names from screenshot 1
+            "prompt_tokens": f'sum(rate(vllm:prompt_tokens_total{{pod=~"{release_name}-.*"}}[{rate_window}]))',
+            "generation_tokens": f'sum(rate(vllm:generation_tokens_total{{pod=~"{release_name}-.*"}}[{rate_window}]))',
+            "tokens_total": f'sum(rate(vllm:prompt_tokens_total{{pod=~"{release_name}-.*"}}[{rate_window}])) + sum(rate(vllm:generation_tokens_total{{pod=~"{release_name}-.*"}}[{rate_window}]))',
+            "token_throughput": f'sum(rate(vllm:generation_tokens_total{{pod=~"{release_name}-.*"}}[{rate_window}]))',
+            # Timing metrics - using actual metric names from screenshot 3
+            "time_to_first_token": f'histogram_quantile(0.95, increase(vllm:time_to_first_token_seconds_bucket{{pod=~"{release_name}-.*"}}[{rate_window}]))',
+            "time_per_output_token": f'histogram_quantile(0.95, increase(vllm:time_per_output_token_seconds_bucket{{pod=~"{release_name}-.*"}}[{rate_window}]))',
+            # E2E latency - using actual metric name from screenshot 2
+            "e2e_latency": f'histogram_quantile(0.95, increase(vllm:e2e_request_latency_seconds_bucket{{pod=~"{release_name}-.*"}}[{rate_window}]))',
+            "e2e_latency_p50": f'histogram_quantile(0.50, increase(vllm:e2e_request_latency_seconds_bucket{{pod=~"{release_name}-.*"}}[{rate_window}]))',
+            "e2e_latency_p99": f'histogram_quantile(0.99, increase(vllm:e2e_request_latency_seconds_bucket{{pod=~"{release_name}-.*"}}[{rate_window}]))',
+            # Request metrics
+            "requests_completed": f'sum(increase(vllm:request_success_total{{pod=~"{release_name}-.*"}}[{rate_window}]))',
+            "requests_per_second": f'sum(rate(vllm:request_success_total{{pod=~"{release_name}-.*"}}[{rate_window}]))',
+            "mean_tokens_per_request": f'sum(rate(vllm:request_generation_tokens_sum{{pod=~"{release_name}-.*"}}[{rate_window}])) / sum(rate(vllm:request_generation_tokens_count{{pod=~"{release_name}-.*"}}[{rate_window}]))',
+            # GPU metrics
+            "gpu_utilization": f'avg(vllm:gpu_utilization{{pod=~"{release_name}-.*"}})',
+            "gpu_cache_usage": f'avg(vllm:gpu_cache_usage_perc{{pod=~"{release_name}-.*"}})',
+        }
+
+        # Add requested metrics to the list if they're not already in the dashboard metrics
+        for metric in metric_names:
+            if metric not in vllm_dashboard_metrics and metric != "tokens_total":
+                if "vllm:" in metric or ":" in metric:
+                    vllm_dashboard_metrics[metric] = (
+                        f'sum({metric}{{pod=~"{release_name}-.*"}})'
+                    )
+                else:
+                    vllm_dashboard_metrics[metric] = (
+                        f'sum(vllm:{metric}{{pod=~"{release_name}-.*"}})'
+                    )
+
+        # Use dashboard metrics if no specific metrics were requested
+        metrics_to_fetch = (
+            metric_names if metric_names else list(vllm_dashboard_metrics.keys())
+        )
+
         # Process each requested metric
-        for metric_name in metric_names:
+        for metric_name in metrics_to_fetch:
             # Build appropriate query based on metric name
-            if metric_name == "tokens_total":
+            if metric_name in vllm_dashboard_metrics:
+                query = vllm_dashboard_metrics[metric_name]
+            elif metric_name == "tokens_total":
                 # Special case for combined tokens - use exact format that works
                 query = f'sum(vllm:prompt_tokens_total{{pod=~"{release_name}-.*"}}) + sum(vllm:generation_tokens_total{{pod=~"{release_name}-.*"}})'
             elif ":" in metric_name:
                 # Direct Prometheus metric name
-                query = f'sum({metric_name}{{namespace="{namespace}", pod=~"{release_name}-.*"}})'
+                query = f'sum({metric_name}{{pod=~"{release_name}-.*"}})'
             else:
                 # Add vllm: prefix if not specified
-                query = f'sum(vllm:{metric_name}{{namespace="{namespace}", pod=~"{release_name}-.*"}})'
+                query = f'sum(vllm:{metric_name}{{pod=~"{release_name}-.*"}})'
 
             # Query parameters - Prometheus requires Unix timestamp
             if use_range_query:
@@ -3216,7 +3296,7 @@ async def get_cloud_metrics(request: DeploymentMetricsRequest):
                 logger.error(f"Error processing metric {metric_name}: {str(e)}")
                 results[metric_name] = {"error": str(e)}
 
-        # Process results to provide a more user-friendly format
+        # Process results to provide a more user-friendly format with enhanced error handling and data formatting
         processed_results = {}
         for metric_name, data in results.items():
             if "error" in data:
@@ -3230,19 +3310,46 @@ async def get_cloud_metrics(request: DeploymentMetricsRequest):
                     if use_range_query:
                         # Range query returns values array with timestamps
                         try:
-                            # Get the most recent value from the range
+                            # Get the values from the range
                             values = result_data[0].get("values", [])
                             if values:
-                                # Get the last value (most recent)
+                                # Process all values for time series data
+                                processed_values = []
+                                for timestamp, value_str in values:
+                                    try:
+                                        value = float(value_str)
+                                        processed_values.append(
+                                            {"timestamp": timestamp, "value": value}
+                                        )
+                                    except (ValueError, TypeError):
+                                        # Skip invalid values but log them
+                                        logger.warning(
+                                            f"Invalid value format in time series: {value_str} at {timestamp}"
+                                        )
+
+                                # Get the last value (most recent) for summary
                                 latest_value = values[-1]
                                 if len(latest_value) >= 2:
-                                    value = float(latest_value[1])
-                                    processed_results[metric_name] = {
-                                        "value": value,
-                                        "timestamp": latest_value[0],
-                                        "labels": result_data[0].get("metric", {}),
-                                        "values": values,  # Include full history
-                                    }
+                                    try:
+                                        value = float(latest_value[1])
+                                        # Format special metrics for better readability
+                                        formatted_value = _format_metric_value(
+                                            metric_name, value
+                                        )
+
+                                        processed_results[metric_name] = {
+                                            "value": value,
+                                            "formatted_value": formatted_value,
+                                            "timestamp": latest_value[0],
+                                            "labels": result_data[0].get("metric", {}),
+                                            "values": processed_values,  # Include processed history
+                                            "unit": _get_metric_unit(metric_name),
+                                        }
+                                    except (ValueError, TypeError) as e:
+                                        processed_results[metric_name] = {
+                                            "error": f"Invalid value format in range: {str(e)}",
+                                            "raw_value": latest_value[1],
+                                        }
                                 else:
                                     processed_results[metric_name] = {
                                         "error": "Invalid value format in range"
@@ -3250,7 +3357,9 @@ async def get_cloud_metrics(request: DeploymentMetricsRequest):
                             else:
                                 processed_results[metric_name] = {
                                     "value": 0,
+                                    "formatted_value": "0",
                                     "info": "Empty values array",
+                                    "unit": _get_metric_unit(metric_name),
                                 }
                         except (ValueError, TypeError, IndexError) as e:
                             processed_results[metric_name] = {
@@ -3262,14 +3371,22 @@ async def get_cloud_metrics(request: DeploymentMetricsRequest):
                         if len(value_data) >= 2:
                             try:
                                 value = float(value_data[1])
+                                # Format special metrics for better readability
+                                formatted_value = _format_metric_value(
+                                    metric_name, value
+                                )
+
                                 processed_results[metric_name] = {
                                     "value": value,
+                                    "formatted_value": formatted_value,
                                     "timestamp": value_data[0],
                                     "labels": result_data[0].get("metric", {}),
+                                    "unit": _get_metric_unit(metric_name),
                                 }
-                            except (ValueError, TypeError):
+                            except (ValueError, TypeError) as e:
                                 processed_results[metric_name] = {
-                                    "error": "Invalid value format"
+                                    "error": f"Invalid value format: {str(e)}",
+                                    "raw_value": value_data[1],
                                 }
                         else:
                             processed_results[metric_name] = {
@@ -3292,10 +3409,12 @@ async def get_cloud_metrics(request: DeploymentMetricsRequest):
 
                     processed_results[metric_name] = {
                         "value": 0,
+                        "formatted_value": "0",
                         "info": "No data available",
+                        "unit": _get_metric_unit(metric_name),
                     }
 
-        # Add some calculated metrics
+        # Add some calculated metrics with proper formatting
         if (
             "vllm:prompt_tokens_total" in processed_results
             and "vllm:generation_tokens_total" in processed_results
@@ -3306,9 +3425,12 @@ async def get_cloud_metrics(request: DeploymentMetricsRequest):
             gen_tokens = processed_results["vllm:generation_tokens_total"].get(
                 "value", 0
             )
+            total_value = prompt_tokens + gen_tokens
             processed_results["total_tokens"] = {
-                "value": prompt_tokens + gen_tokens,
+                "value": total_value,
+                "formatted_value": f"{int(total_value)}",
                 "timestamp": int(datetime.now().timestamp()),
+                "unit": "tokens",
             }
 
         return MetricsResponse(
