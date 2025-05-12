@@ -7,6 +7,7 @@ import {
   Boxes,
   MessageSquare,
   Server,
+  LineChart,
 } from "lucide-react";
 
 const navItems = [
@@ -39,6 +40,12 @@ const navItems = [
     href: "/clusters",
     icon: Server,
     activeColor: "text-cyan-500",
+  },
+  {
+    title: "Analytics",
+    href: "/analytics",
+    icon: LineChart,
+    activeColor: "text-yellow-500",
   },
 ];
 

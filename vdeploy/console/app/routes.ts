@@ -14,5 +14,6 @@ export default [
     route("clusters/new", "routes/clusters-new.tsx"),
     route("clusters/:id", "routes/cluster-detail.tsx"),
     route("models", "routes/models.tsx"),
+    route("analytics", "routes/analytics.tsx"),
   ]),
 ] satisfies RouteConfig;
