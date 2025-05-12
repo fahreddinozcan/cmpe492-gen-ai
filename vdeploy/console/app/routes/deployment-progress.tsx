@@ -1,5 +1,5 @@
 import * as React from "react";
-import { useParams, useNavigate } from "react-router";
+import { useParams, useNavigate } from "react-router-dom";
 import { Button } from "../components/ui/button";
 import { useDeployment, useRefreshDeploymentStatus } from "../lib/api";
 import { CheckCircle, Circle, Clock, AlertCircle } from "lucide-react";

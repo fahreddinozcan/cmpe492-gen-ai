@@ -5,7 +5,7 @@ import {
   Outlet,
   Scripts,
   ScrollRestoration,
-} from "react-router";
+} from "react-router-dom";
 import { QueryProvider } from "./components/query-provider";
 
 import type { Route } from "./+types/root";

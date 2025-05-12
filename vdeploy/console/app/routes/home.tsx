@@ -1,4 +1,4 @@
-import { redirect } from "react-router";
+import { redirect } from "react-router-dom";
 import type { Route } from "./+types/home";
 
 export function loader({}: Route.LoaderArgs) {
