@@ -96,28 +96,35 @@ export default function Analytics() {
     selectedDeployment !== null,
     timeInterval
   );
-  
+
   // New metrics - Request metrics
-  const {
-    data: requestMetrics,
-    isLoading: isLoadingRequestMetrics,
-  } = useCloudMetrics(
-    selectedDeployment,
-    ["requests_completed", "requests_per_second", "mean_tokens_per_request"],
-    selectedDeployment !== null,
-    timeInterval
-  );
-  
+  const { data: requestMetrics, isLoading: isLoadingRequestMetrics } =
+    useCloudMetrics(
+      selectedDeployment,
+      ["requests_completed", "requests_per_second", "mean_tokens_per_request"],
+      selectedDeployment !== null,
+      timeInterval
+    );
+
   // New metrics - GPU metrics
-  const {
-    data: gpuMetrics,
-    isLoading: isLoadingGpuMetrics,
-  } = useCloudMetrics(
+  const { data: gpuMetrics, isLoading: isLoadingGpuMetrics } = useCloudMetrics(
     selectedDeployment,
     ["gpu_utilization", "gpu_cache_usage"],
     selectedDeployment !== null,
     timeInterval
   );
+
+  // Fetch cost data for selected deployment
+  const {
+    data: deploymentCostData,
+    isLoading: isLoadingDeploymentCosts,
+  } = useDeploymentCosts(selectedDeployment, timeInterval);
+
+  // Fetch all costs data
+  const {
+    data: allCostsData,
+    isLoading: isLoadingAllCosts,
+  } = useAllCosts(timeInterval);
 
   // Chart data state
   const [tokenChartData, setTokenChartData] = React.useState<
@@ -133,15 +140,28 @@ export default function Analytics() {
 
   const [timeToFirstTokenChartData, setTimeToFirstTokenChartData] =
     React.useState<Array<{ time: string; ttft: number }>>([]);
-    
+
   // New chart data states
   const [requestChartData, setRequestChartData] = React.useState<
-    Array<{ time: string; requestsCompleted: number; requestsPerSecond: number; meanTokensPerRequest: number }>
+    Array<{
+      time: string;
+      requestsCompleted: number;
+      requestsPerSecond: number;
+      meanTokensPerRequest: number;
+    }>
   >([]);
-  
+
   const [gpuChartData, setGpuChartData] = React.useState<
     Array<{ time: string; gpuUtilization: number; gpuCacheUsage: number }>
   >([]);
+
+  // Cost chart data
+  const [deploymentCostChartData, setDeploymentCostChartData] = React.useState<
+    Array<{ date: string; cost: number }>
+  >([]);
+
+  const [allDeploymentsCostChartData, setAllDeploymentsCostChartData] =
+    React.useState<Array<{ date: string; [key: string]: number | string }>>([]);
 
   // Process token metrics data for the chart
   React.useEffect(() => {
@@ -364,7 +384,7 @@ export default function Analytics() {
       setTimeToFirstTokenChartData([]);
     }
   }, [timeToFirstTokenMetrics]);
-  
+
   // Process request metrics data for the chart
   React.useEffect(() => {
     if (!requestMetrics?.metrics) {
@@ -375,12 +395,21 @@ export default function Analytics() {
     try {
       const timeMap: Record<
         string,
-        { time: string; requestsCompleted: number; requestsPerSecond: number; meanTokensPerRequest: number }
+        {
+          time: string;
+          requestsCompleted: number;
+          requestsPerSecond: number;
+          meanTokensPerRequest: number;
+        }
       > = {};
 
       // Process requests_completed data
       const requestsCompletedData = requestMetrics.metrics.requests_completed;
-      if (requestsCompletedData && !requestsCompletedData.error && requestsCompletedData.values) {
+      if (
+        requestsCompletedData &&
+        !requestsCompletedData.error &&
+        requestsCompletedData.values
+      ) {
         const processedData = processMetricDataForChart(
           requestsCompletedData,
           "value"
@@ -405,7 +434,11 @@ export default function Analytics() {
 
       // Process requests_per_second data
       const requestsPerSecondData = requestMetrics.metrics.requests_per_second;
-      if (requestsPerSecondData && !requestsPerSecondData.error && requestsPerSecondData.values) {
+      if (
+        requestsPerSecondData &&
+        !requestsPerSecondData.error &&
+        requestsPerSecondData.values
+      ) {
         const processedData = processMetricDataForChart(
           requestsPerSecondData,
           "value"
@@ -429,8 +462,13 @@ export default function Analytics() {
       }
 
       // Process mean_tokens_per_request data
-      const meanTokensPerRequestData = requestMetrics.metrics.mean_tokens_per_request;
-      if (meanTokensPerRequestData && !meanTokensPerRequestData.error && meanTokensPerRequestData.values) {
+      const meanTokensPerRequestData =
+        requestMetrics.metrics.mean_tokens_per_request;
+      if (
+        meanTokensPerRequestData &&
+        !meanTokensPerRequestData.error &&
+        meanTokensPerRequestData.values
+      ) {
         const processedData = processMetricDataForChart(
           meanTokensPerRequestData,
           "value"
@@ -464,7 +502,7 @@ export default function Analytics() {
       setRequestChartData([]);
     }
   }, [requestMetrics]);
-  
+
   // Process GPU metrics data for the chart
   React.useEffect(() => {
     if (!gpuMetrics?.metrics) {
@@ -480,7 +518,11 @@ export default function Analytics() {
 
       // Process gpu_utilization data
       const gpuUtilizationData = gpuMetrics.metrics.gpu_utilization;
-      if (gpuUtilizationData && !gpuUtilizationData.error && gpuUtilizationData.values) {
+      if (
+        gpuUtilizationData &&
+        !gpuUtilizationData.error &&
+        gpuUtilizationData.values
+      ) {
         const processedData = processMetricDataForChart(
           gpuUtilizationData,
           "value"
@@ -504,7 +546,11 @@ export default function Analytics() {
 
       // Process gpu_cache_usage data
       const gpuCacheUsageData = gpuMetrics.metrics.gpu_cache_usage;
-      if (gpuCacheUsageData && !gpuCacheUsageData.error && gpuCacheUsageData.values) {
+      if (
+        gpuCacheUsageData &&
+        !gpuCacheUsageData.error &&
+        gpuCacheUsageData.values
+      ) {
         const processedData = processMetricDataForChart(
           gpuCacheUsageData,
           "value"
@@ -913,7 +959,10 @@ export default function Analytics() {
                       labelStyle={{ color: "#fff" }}
                       formatter={(value, name) => {
                         if (name === "requestsCompleted") {
-                          return [Number(value).toLocaleString(), "Completed Requests"];
+                          return [
+                            Number(value).toLocaleString(),
+                            "Completed Requests",
+                          ];
                         } else if (name === "requestsPerSecond") {
                           return [Number(value).toFixed(2), "Requests/s"];
                         } else {
@@ -948,12 +997,15 @@ export default function Analytics() {
               </div>
             ) : (
               <div className="flex justify-center items-center h-64">
-                <p className="text-gray-400">No request metrics data available</p>
+                <p className="text-gray-400">
+                  No request metrics data available
+                </p>
               </div>
             )}
             <div className="mt-2 text-xs text-gray-500">
               <p>
-                Shows completed requests, requests per second, and average tokens per request
+                Shows completed requests, requests per second, and average
+                tokens per request
               </p>
             </div>
           </div>
@@ -989,8 +1041,16 @@ export default function Analytics() {
                       }}
                       labelStyle={{ color: "#fff" }}
                       formatter={(value, name) => {
-                        if (name === "gpuUtilization" || name === "gpuCacheUsage") {
-                          return [Number(value).toFixed(1) + "%", name === "gpuUtilization" ? "GPU Utilization" : "GPU Cache Usage"];
+                        if (
+                          name === "gpuUtilization" ||
+                          name === "gpuCacheUsage"
+                        ) {
+                          return [
+                            Number(value).toFixed(1) + "%",
+                            name === "gpuUtilization"
+                              ? "GPU Utilization"
+                              : "GPU Cache Usage",
+                          ];
                         }
                         return [value, name];
                       }}
