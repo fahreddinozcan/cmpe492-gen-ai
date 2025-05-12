@@ -1,74 +1,44 @@
-import { useParams, Link } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import { Button } from "../components/ui/button";
 import {
   useDeployment,
   useDeleteDeployment,
   useRefreshDeploymentStatus,
   useVLLMPodLogs,
-  useCheckDeploymentReadyForChat,
-  useSendChatMessage,
-  type ChatMessage,
 } from "~/lib/api";
-import {
-  useDeploymentMetrics,
-  useCloudMetrics,
-  processMetricDataForChart,
-  formatMetricValue,
-  type MetricsResponse,
-  type CloudMetricsResponse,
-} from "../lib/metrics-api";
 import React from "react";
 import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-} from "recharts";
+  RefreshCw,
+  Trash2,
+  Server,
+  Clock,
+  Copy,
+  Play,
+  Square,
+  RotateCcw,
+  CheckCircle2,
+  AlertCircle,
+  Settings,
+  Activity,
+  Terminal,
+  Calendar,
+  Hash,
+} from "lucide-react";
 
-// Simple icons
-function RefreshIcon() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 16 16"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <path
-        d="M13.6 2.4L12 0.8V4H8.8V5.6H14.4V0H13.6V2.4ZM12 8.8C12 10.88 10.32 12.56 8.24 12.56C6.16 12.56 4.48 10.88 4.48 8.8C4.48 6.72 6.16 5.04 8.24 5.04V8L11.44 4.8L8.24 1.6V4.48C5.84 4.48 3.92 6.4 3.92 8.8C3.92 11.2 5.84 13.12 8.24 13.12C10.64 13.12 12.56 11.2 12.56 8.8H12Z"
-        fill="currentColor"
-      />
-    </svg>
-  );
-}
-
-function DeleteIcon() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 16 16"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <path
-        d="M4 12.8C4 13.68 4.72 14.4 5.6 14.4H10.4C11.28 14.4 12 13.68 12 12.8V4H4V12.8ZM12.8 2.4H10.4L9.6 1.6H6.4L5.6 2.4H3.2V4H12.8V2.4Z"
-        fill="currentColor"
-      />
-    </svg>
-  );
+function StatusIcon({ status }: { status: string }) {
+  if (status === "deployed" || status === "running") {
+    return <CheckCircle2 className="w-5 h-5 text-green-400" />;
+  }
+  return <AlertCircle className="w-5 h-5 text-yellow-400" />;
 }
 
 export default function DeploymentDetail() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const logsEndRef = React.useRef<HTMLDivElement>(null);
   const [logMessages, setLogMessages] = React.useState<string[]>([]);
   const [isStreamingLogs, setIsStreamingLogs] = React.useState<boolean>(false);
+  const [isCopied, setIsCopied] = React.useState<boolean>(false);
 
   // Fixed data fetching hooks by removing useMemo
   const { data: deployment, isLoading, error, refetch } = useDeployment(id);
@@ -85,414 +55,6 @@ export default function DeploymentDetail() {
 
   const { mutate: deleteDeployment, isPending: isDeleting } =
     useDeleteDeployment();
-
-  // State for tabs
-  const [activeTab, setActiveTab] = React.useState("details"); // 'details', 'chat', or 'analytics'
-  const [chatMessages, setChatMessages] = React.useState<ChatMessage[]>([]);
-  const [userMessage, setUserMessage] = React.useState("");
-  const [isSending, setIsSending] = React.useState(false);
-  const [isModelReady, setIsModelReady] = React.useState(false);
-  const [modelServiceUrl, setModelServiceUrl] = React.useState<string | null>(
-    null
-  );
-  const [connectionError, setConnectionError] = React.useState<string | null>(
-    null
-  );
-
-  // State for time interval selection
-  const [timeInterval, setTimeInterval] = React.useState<number>(120);
-
-  // Get the check deployment ready mutation
-  const { mutate: checkDeploymentReady, isPending: isCheckingDeployment } =
-    useCheckDeploymentReadyForChat();
-
-  // Get the send chat message mutation
-  const { mutate: sendChatToLLM, isPending: isSendingToLLM } =
-    useSendChatMessage();
-
-  // All metrics are now fetched via the cloud metrics endpoint
-  // These individual metrics are for future use if needed
-  const { data: gpuMetrics, isLoading: isLoadingGpuMetrics } =
-    useDeploymentMetrics(deployment, "gpu_utilization", false, timeInterval);
-
-  const { data: memoryMetrics, isLoading: isLoadingMemoryMetrics } =
-    useDeploymentMetrics(deployment, "memory_usage", false, timeInterval);
-
-  const { data: cpuMetrics, isLoading: isLoadingCpuMetrics } =
-    useDeploymentMetrics(deployment, "cpu_usage", false, timeInterval);
-
-  // Time interval options
-  const timeIntervalOptions = [
-    { value: 30, label: "30 minutes" },
-    { value: 60, label: "1 hour" },
-    { value: 120, label: "2 hours" },
-    { value: 360, label: "6 hours" },
-    { value: 720, label: "12 hours" },
-    { value: 1440, label: "24 hours" },
-  ];
-
-  // Get all metrics from cloud metrics endpoint with the selected time interval
-  const { data: tokenMetrics, isLoading: isLoadingTokenMetrics } =
-    useCloudMetrics(
-      deployment,
-      ["prompt_tokens", "generation_tokens"],
-      true,
-      timeInterval
-    );
-
-  const {
-    data: tokenThroughputMetrics,
-    isLoading: isLoadingTokenThroughputMetrics,
-  } = useCloudMetrics(deployment, ["token_throughput"], true, timeInterval);
-
-  const { data: latencyMetricsCloud, isLoading: isLoadingLatencyMetricsCloud } =
-    useCloudMetrics(
-      deployment,
-      ["e2e_latency", "e2e_latency_p50", "e2e_latency_p99"],
-      true,
-      timeInterval
-    );
-
-  const {
-    data: timeToFirstTokenMetrics,
-    isLoading: isLoadingTimeToFirstTokenMetrics,
-  } = useCloudMetrics(deployment, ["time_to_first_token"], true, timeInterval);
-
-  // Prepare chart data for different metrics
-  const [tokenChartData, setTokenChartData] = React.useState<
-    Array<{ time: string; promptTokens: number; generationTokens: number }>
-  >([]);
-
-  const [tokenThroughputChartData, setTokenThroughputChartData] =
-    React.useState<Array<{ time: string; throughput: number }>>([]);
-
-  const [latencyChartData, setLatencyChartData] = React.useState<
-    Array<{ time: string; p50: number; p95: number; p99: number }>
-  >([]);
-
-  const [timeToFirstTokenChartData, setTimeToFirstTokenChartData] =
-    React.useState<Array<{ time: string; ttft: number }>>([]);
-
-  // Process token metrics data for the chart using the helper functions
-  React.useEffect(() => {
-    if (!tokenMetrics?.metrics) {
-      setTokenChartData([]);
-      return;
-    }
-    
-    try {
-      // Create a map to store data points by timestamp
-      const timeMap: Record<string, { time: string; promptTokens: number; generationTokens: number }> = {};
-      
-      // Process prompt tokens
-      const promptData = tokenMetrics.metrics.prompt_tokens;
-      if (promptData && !promptData.error && promptData.values) {
-        const promptValues = processMetricDataForChart(promptData, 'value');
-        
-        promptValues.forEach((item: { time: string; [key: string]: number | string }) => {
-          if (!timeMap[item.time]) {
-            timeMap[item.time] = {
-              time: item.time,
-              promptTokens: 0,
-              generationTokens: 0
-            };
-          }
-          
-          timeMap[item.time].promptTokens = Number(item.value) || 0;
-        });
-      }
-      
-      // Process generation tokens
-      const genData = tokenMetrics.metrics.generation_tokens;
-      if (genData && !genData.error && genData.values) {
-        const genValues = processMetricDataForChart(genData, 'value');
-        
-        genValues.forEach((item: { time: string; [key: string]: number | string }) => {
-          if (!timeMap[item.time]) {
-            timeMap[item.time] = {
-              time: item.time,
-              promptTokens: 0,
-              generationTokens: 0
-            };
-          }
-          
-          timeMap[item.time].generationTokens = Number(item.value) || 0;
-        });
-      }
-      
-      // Convert to array and sort by time
-      const chartData = Object.values(timeMap).sort((a, b) => {
-        try {
-          return new Date(a.time).getTime() - new Date(b.time).getTime();
-        } catch {
-          return 0;
-        }
-      });
-      
-      setTokenChartData(chartData);
-    } catch (error) {
-      console.error("Error processing token metrics:", error);
-      setTokenChartData([]);
-    }
-  }, [tokenMetrics]);
-
-  // Process token throughput metrics data for the chart
-  React.useEffect(() => {
-    if (!tokenThroughputMetrics?.metrics?.token_throughput) {
-      setTokenThroughputChartData([]);
-      return;
-    }
-
-    try {
-      const throughputData = tokenThroughputMetrics.metrics.token_throughput;
-      if (throughputData && !throughputData.error && throughputData.values) {
-        const processedData = processMetricDataForChart(throughputData, 'value') as Array<{ time: string; [key: string]: number | string }>;
-        
-        // Convert the processed data to the expected format
-        const chartData = processedData.map(item => ({
-          time: item.time,
-          throughput: Number(item.value) || 0
-        }));
-        
-        setTokenThroughputChartData(chartData);
-      } else {
-        setTokenThroughputChartData([]);
-      }
-    } catch (error) {
-      console.error("Error processing token throughput metrics:", error);
-      setTokenThroughputChartData([]);
-    }
-  }, [tokenThroughputMetrics]);
-
-  // Process latency metrics data for the chart
-  React.useEffect(() => {
-    if (!latencyMetricsCloud?.metrics) {
-      setLatencyChartData([]);
-      return;
-    }
-    
-    try {
-      const timeMap: Record<string, { time: string; p50: number; p95: number; p99: number }> = {};
-      
-      // Process e2e_latency (p95)
-      const p95Data = latencyMetricsCloud.metrics.e2e_latency;
-      if (p95Data && !p95Data.error && p95Data.values) {
-        const processedData = processMetricDataForChart(p95Data, 'value');
-        
-        processedData.forEach((item: { time: string; [key: string]: number | string }) => {
-          if (!timeMap[item.time]) {
-            timeMap[item.time] = {
-              time: item.time,
-              p50: 0,
-              p95: 0,
-              p99: 0
-            };
-          }
-          
-          // Convert to ms
-          timeMap[item.time].p95 = (Number(item.value) || 0) * 1000;
-        });
-      }
-      
-      // Process e2e_latency_p50
-      const p50Data = latencyMetricsCloud.metrics.e2e_latency_p50;
-      if (p50Data && !p50Data.error && p50Data.values) {
-        const processedData = processMetricDataForChart(p50Data, 'value');
-        
-        processedData.forEach((item: { time: string; [key: string]: number | string }) => {
-          if (!timeMap[item.time]) {
-            timeMap[item.time] = {
-              time: item.time,
-              p50: 0,
-              p95: 0,
-              p99: 0
-            };
-          }
-          
-          // Convert to ms
-          timeMap[item.time].p50 = (Number(item.value) || 0) * 1000;
-        });
-      }
-      
-      // Process e2e_latency_p99
-      const p99Data = latencyMetricsCloud.metrics.e2e_latency_p99;
-      if (p99Data && !p99Data.error && p99Data.values) {
-        const processedData = processMetricDataForChart(p99Data, 'value');
-        
-        processedData.forEach((item: { time: string; [key: string]: number | string }) => {
-          if (!timeMap[item.time]) {
-            timeMap[item.time] = {
-              time: item.time,
-              p50: 0,
-              p95: 0,
-              p99: 0
-            };
-          }
-          
-          // Convert to ms
-          timeMap[item.time].p99 = (Number(item.value) || 0) * 1000;
-        });
-      }
-      
-      // Convert to array and sort by time
-      const chartData = Object.values(timeMap).sort((a, b) => {
-        try {
-          return new Date(a.time).getTime() - new Date(b.time).getTime();
-        } catch {
-          return 0;
-        }
-      });
-      
-      setLatencyChartData(chartData);
-    } catch (error) {
-      console.error("Error processing latency metrics:", error);
-      setLatencyChartData([]);
-    }
-  }, [latencyMetricsCloud]);
-
-  // Process time to first token metrics data for the chart
-  React.useEffect(() => {
-    if (!timeToFirstTokenMetrics?.metrics?.time_to_first_token) {
-      setTimeToFirstTokenChartData([]);
-      return;
-    }
-    
-    try {
-      const ttftData = timeToFirstTokenMetrics.metrics.time_to_first_token;
-      if (ttftData && !ttftData.error && ttftData.values) {
-        const processedData = processMetricDataForChart(ttftData, 'value') as Array<{ time: string; [key: string]: number | string }>;
-        
-        // Convert the processed data to the expected format and convert to ms
-        const chartData = processedData.map(item => ({
-          time: item.time,
-          ttft: (Number(item.value) || 0) * 1000 // Convert to ms
-        }));
-        
-        setTimeToFirstTokenChartData(chartData);
-      } else {
-        setTimeToFirstTokenChartData([]);
-      }
-    } catch (error) {
-      console.error("Error processing time to first token metrics:", error);
-      setTimeToFirstTokenChartData([]);
-    }
-  }, [timeToFirstTokenMetrics]);
-
-  // Check if the model is ready when the chat tab is activated
-  React.useEffect(() => {
-    if (
-      activeTab === "chat" &&
-      deployment &&
-      !isModelReady &&
-      !isCheckingDeployment &&
-      !connectionError
-    ) {
-      checkModelReadiness();
-    }
-  }, [
-    activeTab,
-    deployment,
-    isModelReady,
-    isCheckingDeployment,
-    connectionError,
-  ]);
-
-  // Check if the model is ready for chat
-  const checkModelReadiness = async () => {
-    if (!deployment || isCheckingDeployment || !id) return;
-
-    try {
-      checkDeploymentReady(id, {
-        onSuccess: (data) => {
-          setIsModelReady(true);
-          setModelServiceUrl(data.serviceUrl);
-          setConnectionError(null);
-          console.log(`Model is ready with service URL: ${data.serviceUrl}`);
-        },
-        onError: (error: Error) => {
-          setConnectionError(error.message);
-          console.error("Error checking model readiness:", error);
-        },
-      });
-    } catch (error) {
-      if (error instanceof Error) {
-        setConnectionError(error.message);
-      } else {
-        setConnectionError("An unknown error occurred");
-      }
-      console.error("Error checking model readiness:", error);
-    }
-  };
-
-  // Handle sending a message to the LLM
-  const handleSendMessage = async () => {
-    if (!userMessage.trim() || isSending || !isModelReady) return;
-
-    setIsSending(true);
-
-    // Add user message to chat
-    const newMessage: ChatMessage = { role: "user", content: userMessage };
-    setChatMessages((prev) => [...prev, newMessage]);
-    setUserMessage("");
-
-    try {
-      // Send the message to the deployed LLM
-      const typedMessages: ChatMessage[] = chatMessages.map((msg) => ({
-        role: msg.role as "user" | "assistant" | "system",
-        content: msg.content,
-      }));
-
-      const allMessages: ChatMessage[] = [...typedMessages, newMessage];
-
-      if (!id) {
-        throw new Error("Deployment ID is required");
-      }
-
-      sendChatToLLM(
-        {
-          deploymentId: id,
-          messages: allMessages,
-          options: {
-            max_tokens: 1000,
-            temperature: 0.7,
-          },
-        },
-        {
-          onSuccess: (response) => {
-            // Add the LLM's response to the chat
-            if (response.choices && response.choices.length > 0) {
-              const assistantMessage = response.choices[0].message;
-              setChatMessages((prev) => [...prev, assistantMessage]);
-            }
-            setIsSending(false);
-          },
-          onError: (error) => {
-            console.error("Error sending message to LLM:", error);
-            // Add an error message to the chat
-            setChatMessages((prev) => [
-              ...prev,
-              {
-                role: "assistant",
-                content: `Error: Failed to get a response from the model. ${error.message}`,
-              },
-            ]);
-            setIsSending(false);
-          },
-        }
-      );
-    } catch (error) {
-      console.error("Error sending message:", error);
-      // Add an error message to the chat
-      setChatMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: "Error: Failed to send message to the model.",
-        },
-      ]);
-      setIsSending(false);
-    }
-  };
 
   // Setup WebSocket for real-time logs
   React.useEffect(() => {
@@ -547,12 +109,12 @@ export default function DeploymentDetail() {
     )
       return;
     deleteDeployment(id);
-    window.location.href = "/deployments";
+    navigate("/deployments");
   };
 
   // Redirect if no ID
   if (!id) {
-    window.location.href = "/deployments";
+    navigate("/deployments");
     return <div>Redirecting...</div>;
   }
 
@@ -561,7 +123,7 @@ export default function DeploymentDetail() {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-gray-900">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mb-4"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mb-4"></div>
           <p className="text-white">Loading deployment details...</p>
         </div>
       </div>
@@ -579,10 +141,7 @@ export default function DeploymentDetail() {
           <Button variant="outline" onClick={() => refetch()}>
             Try Again
           </Button>
-          <Button
-            variant="secondary"
-            onClick={() => (window.location.href = "/deployments")}
-          >
+          <Button variant="secondary" onClick={() => navigate("/deployments")}>
             Back to Deployments
           </Button>
         </div>
@@ -598,7 +157,7 @@ export default function DeploymentDetail() {
         <p className="text-gray-400 mb-6">
           The deployment you're looking for could not be found.
         </p>
-        <Button onClick={() => (window.location.href = "/deployments")}>
+        <Button onClick={() => navigate("/deployments")}>
           Back to Deployments
         </Button>
       </div>
@@ -617,479 +176,189 @@ export default function DeploymentDetail() {
     }).format(date);
   };
 
+  // Get status color
+  const getStatusColor = (status: string) => {
+    switch (status?.toLowerCase()) {
+      case "deployed":
+      case "running":
+        return "text-green-400 bg-green-900/20 border-green-500/30";
+      case "pending":
+      case "provisioning":
+        return "text-yellow-400 bg-yellow-900/20 border-yellow-500/30";
+      case "failed":
+        return "text-red-400 bg-red-900/20 border-red-500/30";
+      default:
+        return "text-gray-400 bg-gray-900/20 border-gray-500/30";
+    }
+  };
+
   // Main content with deployment details
   return (
-    <div className="p-6 max-w-6xl mx-auto  text-white min-h-screen">
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-white">{deployment.name}</h1>
-          <p className="text-gray-400">
-            Namespace: {deployment.namespace} | Created:{" "}
-            {formatDate(deployment.created_at)}
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleRefreshStatus}
-            disabled={isRefreshing}
-          >
-            <RefreshIcon />
-            {isRefreshing ? "Refreshing..." : "Refresh Status"}
-          </Button>
-          <Button
-            variant="destructive"
-            size="sm"
-            onClick={handleDeleteDeployment}
-            disabled={isDeleting}
-          >
-            <DeleteIcon />
-            {isDeleting ? "Deleting..." : "Delete"}
-          </Button>
-        </div>
-      </div>
-
-      {/* Tabs */}
-      <div className="flex border-b border-gray-700 mb-6">
-        <button
-          className={`px-4 py-2 font-medium ${
-            activeTab === "details"
-              ? "text-blue-500 border-b-2 border-blue-500"
-              : "text-gray-400 hover:text-gray-300"
-          }`}
-          onClick={() => setActiveTab("details")}
-        >
-          Deployment Details
-        </button>
-        <button
-          className={`px-4 py-2 font-medium ${
-            activeTab === "chat"
-              ? "text-blue-500 border-b-2 border-blue-500"
-              : "text-gray-400 hover:text-gray-300"
-          }`}
-          onClick={() => setActiveTab("chat")}
-        >
-          Chat with Model
-        </button>
-        <button
-          className={`px-4 py-2 font-medium ${
-            activeTab === "analytics"
-              ? "text-blue-500 border-b-2 border-blue-500"
-              : "text-gray-400 hover:text-gray-300"
-          }`}
-          onClick={() => setActiveTab("analytics")}
-        >
-          Analytics
-        </button>
-      </div>
-
-      {activeTab === "analytics" && (
-        <div className="mt-6">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-xl font-bold">Deployment Analytics</h3>
-
-            {/* Time interval selector */}
-            <div className="flex items-center space-x-2">
-              <span className="text-sm text-gray-400">Time range:</span>
-              <select
-                value={timeInterval}
-                onChange={(e) => setTimeInterval(Number(e.target.value))}
-                className="bg-gray-800 border border-gray-700 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2"
-              >
-                {timeIntervalOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* Token Usage Chart */}
-          <div className="mb-8">
-            <h4 className="text-md font-medium mb-2">Token Usage</h4>
-            <div className="bg-gray-900 rounded-lg p-4 border border-gray-700">
-              {isLoadingTokenMetrics ? (
-                <div className="flex justify-center items-center h-64">
-                  <p className="text-gray-400">Loading token usage data...</p>
-                </div>
-              ) : tokenChartData.length > 0 ? (
-                <div className="h-64">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart
-                      data={tokenChartData}
-                      margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" stroke="#444" />
-                      <XAxis
-                        dataKey="time"
-                        stroke="#888"
-                        tick={{ fill: "#888" }}
-                        tickFormatter={(value) =>
-                          value.split(":")[0] + ":" + value.split(":")[1]
-                        }
-                      />
-                      <YAxis stroke="#888" tick={{ fill: "#888" }} />
-                      <Tooltip
-                        contentStyle={{
-                          backgroundColor: "#333",
-                          borderColor: "#555",
-                        }}
-                        labelStyle={{ color: "#fff" }}
-                        formatter={(value, name) => [
-                          Number(value).toLocaleString(),
-                          name === "promptTokens"
-                            ? "Input Tokens"
-                            : "Output Tokens",
-                        ]}
-                      />
-                      <Legend />
-                      <Line
-                        type="monotone"
-                        dataKey="promptTokens"
-                        stroke="#60a5fa"
-                        dot={false}
-                        name="Input Tokens"
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey="generationTokens"
-                        stroke="#f59e0b"
-                        dot={false}
-                        name="Output Tokens"
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              ) : (
-                <div className="flex justify-center items-center h-64">
-                  <p className="text-gray-400">No token usage data available</p>
-                </div>
-              )}
-              <div className="mt-2 text-xs text-gray-500">
-                <p>
-                  Shows input (prompt) and output (generation) tokens processed
-                  by this deployment over time
-                </p>
+    <div className="min-h-screen bg-gray-900">
+      {/* Hero Section with improved design */}
+      <div className="relative bg-gradient-to-br from-gray-800 via-gray-900 to-black">
+        <div className="absolute inset-0 bg-grid-pattern opacity-5"></div>
+        <div className="relative p-6 max-w-6xl mx-auto">
+          <div className="flex justify-between items-start mb-6">
+            <div className="flex items-start space-x-4">
+              <div className="w-12 h-12 bg-gradient-to-br from-blue-600 to-blue-700 rounded-lg flex items-center justify-center shadow-lg">
+                <Server className="w-6 h-6 text-white" />
               </div>
-            </div>
-          </div>
-
-          {/* Token Throughput Chart */}
-          <div className="bg-gray-900 rounded-lg p-4 border border-gray-700 mt-6">
-            <h4 className="text-md font-medium mb-2">Token Throughput</h4>
-            {isLoadingTokenThroughputMetrics ? (
-              <div className="flex justify-center items-center h-64">
-                <p className="text-gray-400">
-                  Loading token throughput data...
-                </p>
-              </div>
-            ) : tokenThroughputChartData.length > 0 ? (
-              <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart
-                    data={tokenThroughputChartData}
-                    margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-                  >
-                    <CartesianGrid strokeDasharray="3 3" stroke="#444" />
-                    <XAxis
-                      dataKey="time"
-                      stroke="#888"
-                      tick={{ fill: "#888" }}
-                      tickFormatter={(value) =>
-                        value.split(":")[0] + ":" + value.split(":")[1]
-                      }
-                    />
-                    <YAxis stroke="#888" tick={{ fill: "#888" }} />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: "#333",
-                        borderColor: "#555",
-                      }}
-                      labelStyle={{ color: "#fff" }}
-                      formatter={(value) => [
-                        Number(value).toFixed(2),
-                        "Tokens/s",
-                      ]}
-                    />
-                    <Legend />
-                    <Line
-                      type="monotone"
-                      dataKey="throughput"
-                      stroke="#4ade80"
-                      dot={false}
-                      name="Token Throughput"
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            ) : (
-              <div className="flex justify-center items-center h-64">
-                <p className="text-gray-400">
-                  No token throughput data available
-                </p>
-              </div>
-            )}
-            <div className="mt-2 text-xs text-gray-500">
-              <p>Shows tokens generated per second by the model over time</p>
-            </div>
-          </div>
-
-          {/* E2E Latency Chart */}
-          <div className="bg-gray-900 rounded-lg p-4 border border-gray-700 mt-6">
-            <h4 className="text-md font-medium mb-2">End-to-End Latency</h4>
-            {isLoadingLatencyMetricsCloud ? (
-              <div className="flex justify-center items-center h-64">
-                <p className="text-gray-400">Loading latency data...</p>
-              </div>
-            ) : latencyChartData.length > 0 ? (
-              <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart
-                    data={latencyChartData}
-                    margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-                  >
-                    <CartesianGrid strokeDasharray="3 3" stroke="#444" />
-                    <XAxis
-                      dataKey="time"
-                      stroke="#888"
-                      tick={{ fill: "#888" }}
-                      tickFormatter={(value) =>
-                        value.split(":")[0] + ":" + value.split(":")[1]
-                      }
-                    />
-                    <YAxis stroke="#888" tick={{ fill: "#888" }} />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: "#333",
-                        borderColor: "#555",
-                      }}
-                      labelStyle={{ color: "#fff" }}
-                      formatter={(value) => [Number(value).toFixed(2), "ms"]}
-                    />
-                    <Legend />
-                    <Line
-                      type="monotone"
-                      dataKey="p50"
-                      stroke="#60a5fa"
-                      dot={false}
-                      name="p50 Latency"
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="p95"
-                      stroke="#f59e0b"
-                      dot={false}
-                      name="p95 Latency"
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="p99"
-                      stroke="#ef4444"
-                      dot={false}
-                      name="p99 Latency"
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            ) : (
-              <div className="flex justify-center items-center h-64">
-                <p className="text-gray-400">No latency data available</p>
-              </div>
-            )}
-            <div className="mt-2 text-xs text-gray-500">
-              <p>
-                Shows end-to-end request latency percentiles (p50, p95, p99) in
-                milliseconds
-              </p>
-            </div>
-          </div>
-
-          {/* Time to First Token Chart */}
-          <div className="bg-gray-900 rounded-lg p-4 border border-gray-700 mt-6">
-            <h4 className="text-md font-medium mb-2">Time to First Token</h4>
-            {isLoadingTimeToFirstTokenMetrics ? (
-              <div className="flex justify-center items-center h-64">
-                <p className="text-gray-400">
-                  Loading time to first token data...
-                </p>
-              </div>
-            ) : timeToFirstTokenChartData.length > 0 ? (
-              <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart
-                    data={timeToFirstTokenChartData}
-                    margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-                  >
-                    <CartesianGrid strokeDasharray="3 3" stroke="#444" />
-                    <XAxis
-                      dataKey="time"
-                      stroke="#888"
-                      tick={{ fill: "#888" }}
-                      tickFormatter={(value) =>
-                        value.split(":")[0] + ":" + value.split(":")[1]
-                      }
-                    />
-                    <YAxis stroke="#888" tick={{ fill: "#888" }} />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: "#333",
-                        borderColor: "#555",
-                      }}
-                      labelStyle={{ color: "#fff" }}
-                      formatter={(value) => [Number(value).toFixed(2), "ms"]}
-                    />
-                    <Legend />
-                    <Line
-                      type="monotone"
-                      dataKey="ttft"
-                      stroke="#a78bfa"
-                      dot={false}
-                      name="Time to First Token"
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            ) : (
-              <div className="flex justify-center items-center h-64">
-                <p className="text-gray-400">
-                  No time to first token data available
-                </p>
-              </div>
-            )}
-            <div className="mt-2 text-xs text-gray-500">
-              <p>
-                Shows time taken to generate the first token in milliseconds
-              </p>
-            </div>
-          </div>
-
-          {/* Other metrics */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
-            <div className="bg-gray-900 rounded-lg p-4 border border-gray-700">
-              <h4 className="text-md font-medium mb-2">GPU Utilization</h4>
-              <p className="text-gray-400">Coming soon</p>
-            </div>
-            <div className="bg-gray-900 rounded-lg p-4 border border-gray-700">
-              <h4 className="text-md font-medium mb-2">Memory Usage</h4>
-              <p className="text-gray-400">Coming soon</p>
-            </div>
-          </div>
-
-          <div className="mt-4 text-sm text-gray-400">
-            <p>
-              Metrics are provided by Google Cloud Managed Prometheus. Data
-              refreshes every 10 seconds.
-            </p>
-            <p className="mt-2">
-              Note: Some metrics may not be available until the deployment has
-              processed requests.
-            </p>
-          </div>
-        </div>
-      )}
-
-      {activeTab === "details" && (
-        // Details tab content
-        <>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-            <div className="bg-gray-800 shadow rounded-lg p-6">
-              <h2 className="text-lg font-semibold mb-4 text-white">
-                Deployment Status
-              </h2>
-              <div className="space-y-4">
-                <div className="flex items-center gap-2">
-                  <div
-                    className={`w-3 h-3 rounded-full ${
-                      deployment.status === "deployed"
-                        ? "bg-green-500"
-                        : "bg-yellow-500"
-                    }`}
-                  ></div>
-                  <span className="font-medium text-white">
-                    {deployment.status}
+              <div>
+                <h1 className="text-3xl font-bold text-white mb-2">
+                  {deployment.name}
+                </h1>
+                <div className="flex items-center space-x-6 text-sm text-gray-400">
+                  <span className="flex items-center space-x-2">
+                    <Server className="w-4 h-4" />
+                    <span>Namespace: {deployment.namespace}</span>
+                  </span>
+                  <span className="flex items-center space-x-2">
+                    <Calendar className="w-4 h-4" />
+                    <span>Created: {formatDate(deployment.created_at)}</span>
                   </span>
                 </div>
-                <dl className="space-y-2">
-                  <div className="grid grid-cols-3 gap-1">
-                    <dt className="text-gray-500">ID:</dt>
-                    <dd className="col-span-2 font-mono text-sm text-gray-300">
-                      {deployment.deployment_id}
-                    </dd>
-                  </div>
-                  <div className="grid grid-cols-3 gap-1">
-                    <dt className="text-gray-500">Model:</dt>
-                    <dd className="col-span-2 text-gray-300">
-                      {deployment.model}
-                    </dd>
-                  </div>
-                  <div className="grid grid-cols-3 gap-1">
-                    <dt className="text-gray-500">Health:</dt>
-                    <dd className="col-span-2 text-gray-300">
-                      {deployment.health_status || "Unknown"}
-                    </dd>
-                  </div>
-                  <div className="grid grid-cols-3 gap-1">
-                    <dt className="text-gray-500">Ready:</dt>
-                    <dd className="col-span-2 text-gray-300">
-                      {deployment.ready ? "Yes" : "No"}
-                    </dd>
-                  </div>
-                </dl>
               </div>
             </div>
+            <div className="flex gap-3">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleRefreshStatus}
+                disabled={isRefreshing}
+                className="bg-gray-800/50 border-gray-600 hover:bg-gray-700 text-white"
+              >
+                <RefreshCw
+                  className={`w-4 h-4 ${isRefreshing ? "animate-spin" : ""}`}
+                />
+                <span className="ml-2">
+                  {isRefreshing ? "Refreshing..." : "Refresh Status"}
+                </span>
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={handleDeleteDeployment}
+                disabled={isDeleting}
+                className="bg-red-600/80 hover:bg-red-600 text-white"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span className="ml-2">
+                  {isDeleting ? "Deleting..." : "Delete"}
+                </span>
+              </Button>
+            </div>
+          </div>
 
-            <div className="bg-gray-800 shadow rounded-lg p-6">
-              <h2 className="text-lg font-semibold mb-4 text-white">
-                Deployment Configuration
-              </h2>
-              <dl className="space-y-2">
-                <div className="grid grid-cols-3 gap-1">
-                  <dt className="text-gray-500">Name:</dt>
-                  <dd className="col-span-2 text-gray-300">
-                    {deployment.name}
+          {/* Status badges */}
+          <div className="flex items-center space-x-4 mt-6">
+            <div
+              className={`flex items-center space-x-2 px-3 py-2 rounded-lg border ${getStatusColor(
+                deployment.status
+              )}`}
+            >
+              <StatusIcon status={deployment.status} />
+              <span className="font-medium">{deployment.status}</span>
+            </div>
+            <div className="text-gray-400 text-sm flex items-center space-x-2">
+              <Hash className="w-4 h-4" />
+              <span>
+                ID:{" "}
+                <span className="font-mono text-gray-300">
+                  {deployment.deployment_id}
+                </span>
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Content Section */}
+      <div className="p-6 max-w-6xl mx-auto">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+          <div className="bg-gray-800/50 backdrop-blur-sm shadow-xl rounded-xl p-6 border border-gray-700/50">
+            <h2 className="text-lg font-semibold mb-4 text-white flex items-center">
+              <div className="w-8 h-8 bg-blue-600/20 rounded-lg flex items-center justify-center mr-3">
+                <Activity className="w-4 h-4 text-blue-400" />
+              </div>
+              Deployment Status
+            </h2>
+            <div className="space-y-4">
+              <dl className="space-y-3">
+                <div className="flex justify-between items-center py-2 border-b border-gray-700/30">
+                  <dt className="text-gray-400">Model:</dt>
+                  <dd className="text-gray-200 font-medium">
+                    {deployment.model || "unknown"}
                   </dd>
                 </div>
-                <div className="grid grid-cols-3 gap-1">
-                  <dt className="text-gray-500">Namespace:</dt>
-                  <dd className="col-span-2 text-gray-300">
-                    {deployment.namespace}
+                <div className="flex justify-between items-center py-2 border-b border-gray-700/30">
+                  <dt className="text-gray-400">Health:</dt>
+                  <dd className="text-gray-200 font-medium">
+                    {deployment.health_status || "unknown"}
+                  </dd>
+                </div>
+                <div className="flex justify-between items-center py-2">
+                  <dt className="text-gray-400">Ready:</dt>
+                  <dd
+                    className={`font-medium ${
+                      deployment.ready ? "text-green-400" : "text-red-400"
+                    }`}
+                  >
+                    {deployment.ready ? "Yes" : "No"}
                   </dd>
                 </div>
               </dl>
             </div>
           </div>
 
-          {/* Code Snippet Section */}
-          <div className="space-y-2 mb-6">
-            <h2 className="text-lg font-semibold text-white">
+          <div className="bg-gray-800/50 backdrop-blur-sm shadow-xl rounded-xl p-6 border border-gray-700/50">
+            <h2 className="text-lg font-semibold mb-4 text-white flex items-center">
+              <div className="w-8 h-8 bg-purple-600/20 rounded-lg flex items-center justify-center mr-3">
+                <Settings className="w-4 h-4 text-purple-400" />
+              </div>
+              Configuration
+            </h2>
+            <dl className="space-y-3">
+              <div className="flex justify-between items-center py-2 border-b border-gray-700/30">
+                <dt className="text-gray-400">Name:</dt>
+                <dd className="text-gray-200 font-medium">{deployment.name}</dd>
+              </div>
+              <div className="flex justify-between items-center py-2">
+                <dt className="text-gray-400">Namespace:</dt>
+                <dd className="text-gray-200 font-medium">
+                  {deployment.namespace}
+                </dd>
+              </div>
+            </dl>
+          </div>
+        </div>
+
+        {/* Chat with this model button */}
+        <div className="mb-8">
+          <button
+            onClick={() =>
+              navigate(`/completions?model=${deployment?.model || ""}`)
+            }
+            className="w-full bg-gradient-to-r from-purple-600 to-blue-500 hover:from-purple-700 hover:to-blue-600 text-white font-medium py-3 px-6 rounded-xl shadow-lg transition-all duration-300 flex items-center justify-center space-x-3"
+          >
+            <Terminal className="w-5 h-5" />
+            <span className="text-lg">Chat with this model</span>
+          </button>
+        </div>
+
+        {/* API Usage Examples */}
+        <div className="mb-8">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-semibold text-white flex items-center">
+              <div className="w-8 h-8 bg-green-600/20 rounded-lg flex items-center justify-center mr-3">
+                <Terminal className="w-4 h-4 text-green-400" />
+              </div>
               API Usage Examples
             </h2>
-            <div className="bg-gray-800 shadow rounded-lg p-6">
-              <h3 className="text-md font-medium mb-3 text-white">
-                Completions API
-              </h3>
-              <div className="bg-gray-900 p-3 rounded-md text-sm font-mono overflow-x-auto">
-                <pre className="text-green-400 whitespace-pre-wrap break-all">
-                  {`curl -X POST \\
-${
-  deployment?.external_ip
-    ? `http://${deployment.external_ip}`
-    : deployment?.public_url || "http://[DEPLOYMENT-IP]"
-}/v1/completions \\
--H "Content-Type: application/json" \\
--d '{  
-  "model": "${deployment?.model || "deployed-model"}",
-  "prompt": "Write a poem about AI",
-  "max_tokens": 100,
-  "temperature": 0.7
-}'`}
-                </pre>
-                <button
-                  className="mt-2 text-xs bg-blue-600 hover:bg-blue-700 text-white py-1 px-2 rounded"
-                  onClick={() => {
-                    const curlCommand = `curl -X POST \\
+            <button
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg transition-colors duration-200 flex items-center space-x-2"
+              onClick={() => {
+                const curlCommand = `curl -X POST \\
 ${
   deployment?.external_ip
     ? `http://${deployment.external_ip}`
@@ -1102,164 +371,43 @@ ${
   "max_tokens": 100,
   "temperature": 0.7
 }'`;
-                    navigator.clipboard.writeText(curlCommand);
-                    alert("Curl command copied to clipboard!");
-                  }}
-                >
-                  Copy to Clipboard
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* vLLM Pod Logs Section */}
-          <div className="space-y-2">
-            <div className="flex justify-between items-center mb-2">
-              <h2 className="text-lg font-semibold text-white">
-                vLLM Pod Logs
-              </h2>
-              <div className="flex space-x-2">
-                <button
-                  className="px-3 py-1 rounded text-sm bg-gray-600 hover:bg-gray-700 text-white"
-                  onClick={() => {
-                    refetchLogs();
-                  }}
-                >
-                  Refresh Logs
-                </button>
-                <button
-                  className={`px-3 py-1 rounded text-sm ${
-                    isStreamingLogs
-                      ? "bg-red-600 hover:bg-red-700 text-white"
-                      : "bg-blue-600 hover:bg-blue-700 text-white"
-                  }`}
-                  onClick={() => {
-                    if (!isStreamingLogs) {
-                      // Start streaming logs
-                      setLogMessages([]);
-                      setIsStreamingLogs(true);
-                      // Also fetch logs once to populate initial data
-                      refetchLogs();
-                    } else {
-                      // Stop streaming logs
-                      setIsStreamingLogs(false);
-                    }
-                  }}
-                >
-                  {isStreamingLogs ? "Stop Streaming" : "Start Streaming Logs"}
-                </button>
-              </div>
-            </div>
-            <div className="rounded-md border border-gray-700 bg-black text-white p-4 h-96 overflow-y-auto font-mono text-sm">
-              {logMessages.length === 0 ? (
-                <div className="text-gray-400">
-                  {isStreamingLogs
-                    ? "Waiting for logs..."
-                    : 'Click "Start Streaming Logs" to view vLLM pod logs'}
-                </div>
+                navigator.clipboard.writeText(curlCommand);
+                setIsCopied(true);
+                setTimeout(() => setIsCopied(false), 2000);
+              }}
+            >
+              {isCopied ? (
+                <CheckCircle2 className="w-4 h-4" />
               ) : (
-                logMessages.map((entry, index) => (
-                  <div key={index} className="whitespace-pre-wrap mb-1">
-                    {typeof entry === "string" ? entry : JSON.stringify(entry)}
-                  </div>
-                ))
+                <Copy className="w-4 h-4" />
               )}
-              <div ref={logsEndRef} />
-            </div>
+              <span>{isCopied ? "Copied!" : "Copy to Clipboard"}</span>
+            </button>
           </div>
-        </>
-      )}
-
-      {activeTab === "chat" && (
-        // Chat tab content
-        <div className="space-y-4">
-          <div className="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
-            <div className="p-4 h-96 overflow-y-auto">
-              {isCheckingDeployment && (
-                <div className="text-center py-2 mb-4">
-                  <p className="text-blue-400">
-                    Checking if model is ready for chat...
-                  </p>
-                </div>
-              )}
-
-              {connectionError && (
-                <div className="text-center py-2 mb-4 bg-red-900 rounded p-2">
-                  <p className="text-red-200">
-                    Error connecting to model: {connectionError}
-                  </p>
-                  <button
-                    className="mt-2 px-3 py-1 bg-red-700 text-white rounded hover:bg-red-600 text-sm"
-                    onClick={checkModelReadiness}
-                  >
-                    Retry Connection
-                  </button>
-                </div>
-              )}
-
-              {chatMessages.length === 0 ? (
-                <div className="text-center py-10">
-                  <p className="text-gray-400">
-                    {isModelReady
-                      ? "Send a message to start chatting with the model"
-                      : "Checking if model is ready for chat..."}
-                  </p>
-                  {modelServiceUrl && (
-                    <p className="text-gray-500 text-sm mt-2">
-                      Connected to: {modelServiceUrl}
-                    </p>
-                  )}
-                </div>
-              ) : (
-                chatMessages.map((msg, index) => (
-                  <div
-                    key={index}
-                    className={`mb-4 ${
-                      msg.role === "user" ? "text-right" : "text-left"
-                    }`}
-                  >
-                    <div
-                      className={`inline-block rounded-lg px-4 py-2 max-w-3/4 ${
-                        msg.role === "user"
-                          ? "bg-blue-600 text-white"
-                          : "bg-gray-700 text-gray-200"
-                      }`}
-                    >
-                      <p>{msg.content}</p>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-
-            {/* Chat Input */}
-            <div className="border-t border-gray-700 p-4">
-              <div className="flex space-x-2">
-                <input
-                  type="text"
-                  value={userMessage}
-                  onChange={(e) => setUserMessage(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
-                  placeholder={
-                    isModelReady
-                      ? "Type your message..."
-                      : "Model not ready yet..."
-                  }
-                  disabled={!isModelReady || isSending}
-                  className="flex-1 p-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-                <Button
-                  onClick={handleSendMessage}
-                  disabled={!isModelReady || isSending || !userMessage.trim()}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white rounded-lg"
-                >
-                  {isSending ? "Sending..." : "Send"}
-                </Button>
-              </div>
+          <div className="bg-gray-800/50 backdrop-blur-sm shadow-xl rounded-xl p-6 border border-gray-700/50">
+            <h3 className="text-lg font-medium mb-4 text-white">
+              Completions API
+            </h3>
+            <div className="bg-gray-900/50 p-4 rounded-lg border border-gray-700/50 overflow-x-auto">
+              <pre className="text-sm text-green-400 whitespace-pre-wrap">
+                {`curl -X POST \\
+${
+  deployment?.external_ip
+    ? `http://${deployment.external_ip}`
+    : deployment?.public_url || "http://[DEPLOYMENT-IP]"
+}/v1/completions \\
+-H "Content-Type: application/json" \\
+-d '{  
+  "model": "${deployment?.model || "deployed-model"}",
+  "prompt": "Write a poem about AI",
+  "max_tokens": 100,
+  "temperature": 0.7
+}'`}
+              </pre>
             </div>
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }
