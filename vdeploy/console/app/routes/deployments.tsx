@@ -6,6 +6,7 @@ import {
   useRefreshDeploymentStatus,
   type Deployment,
 } from "../lib/api";
+import { useClusters } from "../lib/cluster-api";
 
 // Simple refresh icon component
 function RefreshIcon() {
@@ -32,6 +33,9 @@ export default function Deployments() {
     error,
     refetch,
   } = useDeployments();
+  
+  // Fetch clusters to check if any are available
+  const { data: clusters = [] } = useClusters();
 
   const { mutate: refreshDeployment, isPending: isRefreshing } =
     useRefreshDeploymentStatus();
@@ -40,6 +44,46 @@ export default function Deployments() {
     return new Date(dateString).toLocaleString();
   }
 
+  // Check if there are no clusters first
+  if (clusters.length === 0) {
+    return (
+      <div className="p-6 max-w-7xl mx-auto text-white min-h-screen">
+        <div className="flex items-center justify-between mb-8">
+          <div>
+            <h1 className="text-2xl font-bold">Deployments</h1>
+            <p className="text-gray-400">Manage your model deployments</p>
+          </div>
+        </div>
+        
+        <div className="bg-yellow-800 border border-yellow-600 text-yellow-200 px-4 py-3 rounded mb-6 flex items-center">
+          <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+            <path
+              fillRule="evenodd"
+              d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
+              clipRule="evenodd"
+            />
+          </svg>
+          <div>
+            <p className="font-bold">No Kubernetes clusters found</p>
+            <p className="text-sm">
+              Please create a cluster first before deploying models.
+            </p>
+          </div>
+          <div className="ml-auto">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => (window.location.href = "/clusters")}
+              className="bg-yellow-700 hover:bg-yellow-600 border-yellow-600"
+            >
+              Go to Clusters
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  
   if (isLoading) {
     return <div className="py-8 text-center">Loading deployments...</div>;
   }

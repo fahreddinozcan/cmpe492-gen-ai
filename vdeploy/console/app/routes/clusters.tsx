@@ -30,7 +30,6 @@ import { useToast } from "../components/ui/use-toast";
 import { clusterApiClient } from "../lib/cluster-api";
 import type { ClusterStatus } from "../lib/cluster-api";
 
-
 // Define the cluster interface
 interface Cluster {
   cluster_id: string;
@@ -49,12 +48,12 @@ interface Cluster {
 // Custom hook using React Query for fetching clusters
 function useClusters(projectId?: string) {
   return useQuery<ClusterStatus[], Error>({
-    queryKey: ['clusters', projectId],
+    queryKey: ["clusters", projectId],
     queryFn: () => clusterApiClient.getClusters(projectId),
     refetchInterval: (query) => {
       // Refresh every 10 seconds if we have active clusters
       const hasActiveClusters = query.state.data?.some(
-        (c: ClusterStatus) => c.status === 'CREATING' || c.status === 'DELETING'
+        (c: ClusterStatus) => c.status === "CREATING" || c.status === "DELETING"
       );
       return hasActiveClusters ? 10000 : false;
     },
@@ -64,23 +63,23 @@ function useClusters(projectId?: string) {
 
 // Function to format timestamps
 function formatDate(dateString?: string) {
-  if (!dateString) return 'N/A';
+  if (!dateString) return "N/A";
   return new Date(dateString).toLocaleString();
 }
 
 // Function to determine badge color based on status
 function getStatusBadge(status: string) {
   switch (status) {
-    case 'RUNNING':
+    case "RUNNING":
       return <Badge className="bg-green-500">Running</Badge>;
-    case 'CREATING':
-    case 'PENDING':
+    case "CREATING":
+    case "PENDING":
       return <Badge className="bg-blue-500">Creating</Badge>;
-    case 'DELETING':
+    case "DELETING":
       return <Badge className="bg-orange-500">Deleting</Badge>;
-    case 'ERROR':
+    case "ERROR":
       return <Badge className="bg-red-500">Error</Badge>;
-    case 'NOT_FOUND':
+    case "NOT_FOUND":
       return <Badge variant="outline">Not Found</Badge>;
     default:
       return <Badge variant="secondary">{status}</Badge>;
@@ -91,35 +90,46 @@ export default function Clusters() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  
+
   // State for filtering clusters by project
-  const [selectedProjectId, setSelectedProjectId] = React.useState<string | undefined>(undefined);
-  
+  const [selectedProjectId, setSelectedProjectId] = React.useState<
+    string | undefined
+  >(undefined);
+
   // Fetch clusters with React Query
-  const { data: clusters = [], isLoading, error, refetch } = useClusters(selectedProjectId);
+  const {
+    data: clusters = [],
+    isLoading,
+    error,
+    refetch,
+  } = useClusters(selectedProjectId);
 
   // Delete cluster mutation
   const deleteMutation = useMutation({
-    mutationFn: (cluster: ClusterStatus) => 
+    mutationFn: (cluster: ClusterStatus) =>
       clusterApiClient.deleteCluster({
         project_id: cluster.project_id,
         zone: cluster.zone,
         cluster_name: cluster.cluster_name,
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['clusters'] });
-    }
+      queryClient.invalidateQueries({ queryKey: ["clusters"] });
+    },
   });
-  
+
   // Delete a cluster
   const deleteCluster = async (cluster: ClusterStatus) => {
-    if (!confirm(`Are you sure you want to delete cluster ${cluster.cluster_name}?`)) {
+    if (
+      !confirm(
+        `Are you sure you want to delete cluster ${cluster.cluster_name}?`
+      )
+    ) {
       return;
     }
-    
+
     try {
       await deleteMutation.mutateAsync(cluster);
-      
+
       toast({
         title: "Cluster Deletion Started",
         description: `Cluster ${cluster.cluster_name} is being deleted.`,
@@ -127,7 +137,9 @@ export default function Clusters() {
     } catch (error) {
       toast({
         title: "Deletion Failed",
-        description: `Failed to delete cluster: ${error instanceof Error ? error.message : 'Unknown error'}.`,
+        description: `Failed to delete cluster: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }.`,
         variant: "destructive",
       });
     }
@@ -153,14 +165,16 @@ export default function Clusters() {
           </Button>
         </div>
       </div>
-      
+
       {/* Project selector */}
       <div className="mb-4">
         <div className="flex items-center space-x-4">
           <div className="w-64">
-            <Select 
-              value={selectedProjectId || "all"} 
-              onValueChange={(value) => setSelectedProjectId(value === "all" ? undefined : value)}
+            <Select
+              value={selectedProjectId || "all"}
+              onValueChange={(value) =>
+                setSelectedProjectId(value === "all" ? undefined : value)
+              }
             >
               <SelectTrigger>
                 <SelectValue placeholder="Filter by project" />
@@ -168,21 +182,20 @@ export default function Clusters() {
               <SelectContent>
                 <SelectItem value="all">All Projects</SelectItem>
                 {/* Only show existing projects from clusters data */}
-                {[...new Set(clusters.map(cluster => cluster.project_id))]
+                {[...new Set(clusters.map((cluster) => cluster.project_id))]
                   .filter(Boolean)
-                  .map(projectId => (
+                  .map((projectId) => (
                     <SelectItem key={projectId} value={projectId}>
                       {projectId}
                     </SelectItem>
-                  ))
-                }
+                  ))}
               </SelectContent>
             </Select>
           </div>
           {selectedProjectId && (
-            <Button 
-              variant="ghost" 
-              size="sm" 
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={() => setSelectedProjectId(undefined)}
             >
               Clear Filter
@@ -248,7 +261,9 @@ export default function Clusters() {
                       <Button
                         variant="link"
                         className="p-0 h-auto"
-                        onClick={() => navigate(`/clusters/${cluster.cluster_id}`)}
+                        onClick={() =>
+                          navigate(`/clusters/${cluster.cluster_id}`)
+                        }
                       >
                         {cluster.cluster_name}
                       </Button>
@@ -256,16 +271,18 @@ export default function Clusters() {
                     <TableCell>{cluster.project_id}</TableCell>
                     <TableCell>{cluster.zone}</TableCell>
                     <TableCell>{getStatusBadge(cluster.status)}</TableCell>
-                    <TableCell>{cluster.gpu_type || 'N/A'}</TableCell>
-                    <TableCell>{cluster.gpu_node_count || 'N/A'}</TableCell>
+                    <TableCell>{cluster.gpu_type || "N/A"}</TableCell>
+                    <TableCell>{cluster.gpu_node_count || "N/A"}</TableCell>
                     <TableCell>{formatDate(cluster.created_at)}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end space-x-2">
-                        {cluster.status === 'RUNNING' && (
+                        {cluster.status === "RUNNING" && (
                           <Button
                             variant="ghost"
                             size="icon"
-                            onClick={() => navigate(`/clusters/${cluster.cluster_id}`)}
+                            onClick={() =>
+                              navigate(`/clusters/${cluster.cluster_id}`)
+                            }
                             title="View Details"
                           >
                             <ExternalLink className="h-4 w-4" />
@@ -275,7 +292,7 @@ export default function Clusters() {
                           variant="ghost"
                           size="icon"
                           onClick={() => deleteCluster(cluster)}
-                          disabled={cluster.status === 'DELETING'}
+                          disabled={cluster.status === "DELETING"}
                           title="Delete Cluster"
                         >
                           <Trash2 className="h-4 w-4 text-red-500" />

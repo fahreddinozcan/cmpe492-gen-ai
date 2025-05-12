@@ -351,6 +351,9 @@ export function useGCPProjects() {
   });
 }
 
+// Singleton to track active log polling sessions
+const activePollingInstances: Record<string, string> = {};
+
 // REST API polling hook for cluster logs
 export function useClusterLogs(clusterId: string | undefined) {
   const [logs, setLogs] = React.useState<LogEntry[]>([]);
@@ -359,16 +362,30 @@ export function useClusterLogs(clusterId: string | undefined) {
   const [clusterInfo, setClusterInfo] = React.useState<ClusterStatus | null>(null);
   const [lastTimestamp, setLastTimestamp] = React.useState<string | null>(null);
   const pollingIntervalRef = React.useRef<number | null>(null);
+  const errorCountRef = React.useRef<number>(0);
+  const instanceIdRef = React.useRef<string>(Math.random().toString(36).substring(2, 9));
+  
+  // Check if this is a terminal state
+  const isTerminalState = React.useCallback((status: string): boolean => {
+    return ['RUNNING', 'ERROR', 'NOT_FOUND', 'FAILED'].includes(status);
+  }, []);
 
   const fetchLogs = React.useCallback(async () => {
     if (!clusterId) return;
+    
+    // Skip if this isn't the active polling instance for this clusterId
+    if (activePollingInstances[clusterId] && activePollingInstances[clusterId] !== instanceIdRef.current) {
+      return;
+    }
 
     setIsLoading(true);
-    setError(null);
 
     try {
       // Fetch logs using the REST API
       const data = await clusterApiClient.getClusterLogs(clusterId, 100, lastTimestamp || undefined);
+
+      // Reset error count on successful fetch
+      errorCountRef.current = 0;
 
       // Update cluster info
       setClusterInfo({
@@ -415,27 +432,57 @@ export function useClusterLogs(clusterId: string | undefined) {
           }
         }
       }
+
+      // Check if we need to continue polling based on cluster status
+      if (isTerminalState(data.status)) {
+        // Stop polling for terminal states
+        if (pollingIntervalRef.current !== null) {
+          console.log(`Stopping log polling for cluster ${clusterId} - terminal state: ${data.status}`);
+          clearInterval(pollingIntervalRef.current);
+          pollingIntervalRef.current = null;
+          delete activePollingInstances[clusterId];
+        }
+      }
     } catch (e) {
       console.error('Error fetching cluster logs:', e);
       setError(`Failed to fetch logs: ${e instanceof Error ? e.message : String(e)}`);
+      
+      // Increment error count
+      errorCountRef.current += 1;
+      
+      // Stop polling after 3 consecutive errors
+      if (errorCountRef.current >= 3 && pollingIntervalRef.current !== null) {
+        console.log(`Stopping log polling for cluster ${clusterId} - too many errors`);
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+        delete activePollingInstances[clusterId];
+      }
     } finally {
       setIsLoading(false);
     }
-  }, [clusterId, lastTimestamp]);
+  }, [clusterId, lastTimestamp, isTerminalState]);
 
   // Start polling when clusterId changes
   React.useEffect(() => {
     if (!clusterId) return;
+    
+    // Register this instance as the active polling instance for this clusterId
+    const instanceId = instanceIdRef.current;
+    activePollingInstances[clusterId] = instanceId;
+    
+    console.log(`Starting log polling for cluster ${clusterId} (instance ${instanceId})`);
 
     // Clear logs when starting a new polling session
     setLogs([]);
     setLastTimestamp(null);
     setError(null);
+    errorCountRef.current = 0;
 
     // Fetch logs immediately
     fetchLogs();
 
-    // Set up polling interval (every 10 seconds)
+    // Set up polling interval (every 10 seconds) - only for active states
+    // The interval will be cleared when the cluster reaches a terminal state
     pollingIntervalRef.current = window.setInterval(fetchLogs, 10000);
 
     // Clean up function
@@ -443,6 +490,12 @@ export function useClusterLogs(clusterId: string | undefined) {
       if (pollingIntervalRef.current !== null) {
         clearInterval(pollingIntervalRef.current);
         pollingIntervalRef.current = null;
+      }
+      
+      // Only remove from active instances if this instance is still the active one
+      if (activePollingInstances[clusterId] === instanceId) {
+        console.log(`Cleaning up log polling for cluster ${clusterId} (instance ${instanceId})`);
+        delete activePollingInstances[clusterId];
       }
     };
   }, [clusterId, fetchLogs]);

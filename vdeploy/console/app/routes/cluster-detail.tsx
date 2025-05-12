@@ -9,18 +9,30 @@ import {
   CardTitle,
 } from "../components/ui/card";
 import { Button } from "../components/ui/button";
-import { Badge, Skeleton, useToast } from "../components/ui";
+import { Badge } from "../components/ui/badge";
+import { Skeleton } from "../components/ui/skeleton";
+import { useToast } from "../components/ui/use-toast";
+import { Checkbox } from "../components/ui/checkbox";
+import { Label } from "../components/ui/label";
 import {
   AlertCircle,
+  AlertTriangle,
   ArrowLeft,
-  Check,
   CheckCircle,
   Circle,
   Clock,
+  Copy,
+  Cpu,
+  Info as InfoIcon,
   Loader2,
+  Plus,
   RefreshCw,
+  Rocket,
+  Search,
+  Server as ServerIcon,
   Terminal,
   Trash2,
+  Zap,
 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "../components/ui/alert";
 import {
@@ -36,6 +48,7 @@ import {
   useClusterLogs,
   useDeleteCluster,
 } from "../lib/cluster-api";
+import type { ClusterStatus, LogEntry } from "../lib/cluster-api";
 
 // Define the cluster stages for progress display
 const CLUSTER_STAGES = [
@@ -74,10 +87,14 @@ function mapProgressToStage(progress: number, status: string): string {
   ) {
     return "failed";
   }
+  
+  // If the status is RUNNING, always return running regardless of progress
+  if (status === "RUNNING") {
+    return "running";
+  }
 
   if (progress < 10) return "pending";
-  if (progress < 30) return "pending";
-  if (progress < 40) return "project_verification";
+  if (progress < 30) return "project_verification";
   if (progress < 50) return "creating_cluster";
   if (progress < 100) return "adding_gpu";
   return "running";
@@ -99,10 +116,128 @@ interface Cluster {
   progress?: number;
 }
 
+// Create a context to share logs data between components
+interface ClusterLogsContextType {
+  logs: LogEntry[];
+  isLoading: boolean;
+  error: string | null;
+  refreshLogs: () => void;
+  clusterInfo: ClusterStatus | null;
+  progress: number;
+}
+
+const ClusterLogsContext = React.createContext<ClusterLogsContextType | null>(null);
+
+// Provider component to fetch logs once and share with child components
+function ClusterLogsProvider({ clusterId, children }: { clusterId: string, children: React.ReactNode }) {
+  const logsData = useClusterLogs(clusterId);
+  
+  return (
+    <ClusterLogsContext.Provider value={logsData}>
+      {children}
+    </ClusterLogsContext.Provider>
+  );
+}
+
+// Hook to use the shared logs context
+function useClusterLogsContext() {
+  const context = React.useContext(ClusterLogsContext);
+  if (!context) {
+    throw new Error('useClusterLogsContext must be used within a ClusterLogsProvider');
+  }
+  return context;
+}
+
+// Component to display cluster logs
+function ClusterLogs() {
+  const { logs, isLoading, error, refreshLogs } = useClusterLogsContext();
+  const [autoScroll, setAutoScroll] = React.useState(true);
+  const logContainerRef = React.useRef<HTMLDivElement>(null);
+  
+  // Auto-scroll to bottom when new logs come in
+  React.useEffect(() => {
+    if (autoScroll && logContainerRef.current) {
+      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
+    }
+  }, [logs, autoScroll]);
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between pb-2">
+        <div>
+          <CardTitle>Cluster Logs</CardTitle>
+          <CardDescription>
+            Real-time logs from the cluster creation process
+          </CardDescription>
+        </div>
+        <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-1">
+            <Checkbox 
+              id="auto-scroll" 
+              checked={autoScroll} 
+              onCheckedChange={(checked) => setAutoScroll(checked as boolean)}
+            />
+            <Label htmlFor="auto-scroll" className="text-sm">Auto-scroll</Label>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={refreshLogs}
+            disabled={isLoading}
+          >
+            {isLoading ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4 mr-2" />
+            )}
+            Refresh
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {error && (
+          <Alert variant="destructive" className="mb-4">
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>Error</AlertTitle>
+            <AlertDescription>{error.toString()}</AlertDescription>
+          </Alert>
+        )}
+        
+        <div 
+          ref={logContainerRef}
+          className="bg-black text-green-400 font-mono text-sm p-4 rounded-md h-[400px] overflow-y-auto"
+        >
+          {logs.length === 0 ? (
+            <div className="flex items-center justify-center h-full text-gray-500">
+              <div className="text-center">
+                <Terminal className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                <p>No logs available yet</p>
+                <p className="text-xs mt-1">Logs will appear here as the cluster is being created</p>
+              </div>
+            </div>
+          ) : (
+            logs.map((log, index) => (
+              <div key={index} className="mb-1 leading-relaxed">
+                {log.timestamp && (
+                  <span className="text-gray-500 mr-2">
+                    [{new Date(log.timestamp).toLocaleTimeString()}]
+                  </span>
+                )}
+                <span className={`${log.level === 'ERROR' ? 'text-red-400' : log.level === 'WARNING' ? 'text-yellow-400' : ''}`}>
+                  {log.message}
+                </span>
+              </div>
+            ))
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 // Progress display component for clusters being created
-function ClusterProgressDisplay({ clusterId }: { clusterId: string }) {
-  const { logs, isLoading, error, refreshLogs, clusterInfo, progress } =
-    useClusterLogs(clusterId);
+function ClusterProgressDisplay() {
+  const { clusterInfo, progress, error, refreshLogs, isLoading } = useClusterLogsContext();
   const [currentStage, setCurrentStage] = React.useState<string>("pending");
 
   // Update current stage based on progress
@@ -114,9 +249,12 @@ function ClusterProgressDisplay({ clusterId }: { clusterId: string }) {
   }, [clusterInfo, progress]);
 
   return (
-    <Card className="mb-6">
+    <Card className="mb-6 shadow-md hover:shadow-lg transition-shadow duration-300">
       <CardHeader>
-        <CardTitle>Cluster Creation Progress</CardTitle>
+        <div className="flex items-center">
+          <Clock className="h-5 w-5 text-primary mr-2 animate-pulse" />
+          <CardTitle>Cluster Creation Progress</CardTitle>
+        </div>
         <CardDescription>
           Your cluster is being created. This process may take 10-15 minutes.
         </CardDescription>
@@ -131,33 +269,39 @@ function ClusterProgressDisplay({ clusterId }: { clusterId: string }) {
         )}
 
         {clusterInfo && (
-          <div className="bg-muted/20 p-3 rounded-md mb-6 flex justify-between items-center">
+          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/30 dark:to-indigo-950/30 p-4 rounded-md mb-6 flex justify-between items-center border border-blue-100 dark:border-blue-900">
             <div>
               <p className="text-sm">
                 <span className="font-medium">Status:</span>{" "}
                 <span
                   className={
                     clusterInfo.status === "RUNNING"
-                      ? "text-green-600"
+                      ? "text-green-600 dark:text-green-400 font-semibold"
                       : clusterInfo.status === "ERROR"
-                      ? "text-red-600"
-                      : "text-blue-600"
+                      ? "text-red-600 dark:text-red-400 font-semibold"
+                      : "text-blue-600 dark:text-blue-400 font-semibold"
                   }
                 >
                   {clusterInfo.status}
                 </span>
               </p>
-              {progress > 0 && progress < 100 && (
-                <p className="text-sm">
-                  <span className="font-medium">Progress:</span> {progress}%
-                </p>
-              )}
+              <div className="flex items-center mt-1">
+                <span className="font-medium text-sm mr-2">Progress:</span>
+                <div className="w-48 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                  <div 
+                    className="h-full bg-gradient-to-r from-blue-500 to-indigo-600 transition-all duration-300 ease-in-out" 
+                    style={{ width: `${progress}%` }}
+                  ></div>
+                </div>
+                <span className="ml-2 text-sm font-medium">{progress}%</span>
+              </div>
             </div>
             <Button
               variant="outline"
               size="sm"
               onClick={refreshLogs}
               disabled={isLoading}
+              className="border-blue-200 dark:border-blue-800 hover:bg-blue-50 dark:hover:bg-blue-900/50"
             >
               {isLoading ? (
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -351,13 +495,18 @@ export default function ClusterDetail() {
       ) : (
         <>
           {cluster.status === "CREATING" && (
-            <ClusterProgressDisplay clusterId={clusterId} />
+            <ClusterLogsProvider clusterId={clusterId}>
+              <ClusterProgressDisplay />
+            </ClusterLogsProvider>
           )}
 
           <div className="grid gap-6 mb-6">
             <Card>
               <CardHeader>
-                <CardTitle>Cluster Information</CardTitle>
+                <div className="flex items-center">
+                  <InfoIcon className="h-5 w-5 text-primary mr-2" />
+                  <CardTitle>Cluster Information</CardTitle>
+                </div>
               </CardHeader>
               <CardContent>
                 <Table>
@@ -451,6 +600,14 @@ export default function ClusterDetail() {
                 </div>
               </CardContent>
             </Card>
+          )}
+
+          {(cluster.status === "CREATING" || cluster.status === "RUNNING") && (
+            <div className="mb-6">
+              <ClusterLogsProvider clusterId={clusterId}>
+                <ClusterLogs />
+              </ClusterLogsProvider>
+            </div>
           )}
 
           {cluster.status !== "DELETING" && (
