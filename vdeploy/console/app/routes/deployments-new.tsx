@@ -21,9 +21,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../components/ui/select";
-import { AlertCircle, InfoIcon } from "lucide-react";
+import { AlertCircle, ChevronDown } from "lucide-react";
 import { Alert, AlertTitle, AlertDescription } from "~/components/ui/alert";
 import { useClusters } from "../lib/cluster-api";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "../components/ui/collapsible";
 
 const GPU_TYPE_OPTIONS = [
   { value: "nvidia-l4", label: "NVIDIA L4" },
@@ -246,7 +251,7 @@ export default function NewDeployment() {
             name="release_name"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Release Name</FormLabel>
+                <FormLabel>Deployment Name</FormLabel>
                 <FormControl>
                   <Input {...field} />
                 </FormControl>
@@ -271,7 +276,13 @@ export default function NewDeployment() {
             )}
           />
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <Collapsible className="w-full space-y-4">
+            <CollapsibleTrigger className="flex w-full items-center justify-between rounded-lg border p-4 font-medium">
+              Advanced Settings
+              <ChevronDown className="h-4 w-4" />
+            </CollapsibleTrigger>
+            <CollapsibleContent className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <FormField
               control={form.control}
               name="cpu_count"
@@ -510,6 +521,9 @@ export default function NewDeployment() {
               </FormItem>
             )}
           />
+
+            </CollapsibleContent>
+          </Collapsible>
 
           <Button type="submit" disabled={isSubmitting}>
             {isSubmitting ? "Creating..." : "Create Deployment"}
