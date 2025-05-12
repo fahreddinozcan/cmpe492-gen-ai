@@ -1,0 +1,87 @@
+% Flow Chart for check_gcloud_auth Function
+flowchart TD
+    A[Start: Check gcloud Authentication] --> B[Run gcloud auth list]
+    B --> C{Command Successful?}
+    C -->|No| D[Log Authentication Failure]
+    C -->|Yes| E[Parse JSON Output]
+    E --> F{Accounts Found?}
+    F -->|No| G[Log No Accounts Found]
+    F -->|Yes| H{Active Accounts Exist?}
+    H -->|Yes| I[Return True]
+    H -->|No| J[Log Warning]
+    J --> I
+    D --> K[Return False]
+    G --> K
+    I --> L[End]
+    K --> L
+
+% Flow Chart for list_gcp_projects Function
+flowchart TD
+    A[Start: List GCP Projects] --> B[Run gcloud projects list]
+    B --> C{Command Successful?}
+    C -->|No| D[Return Empty List]
+    C -->|Yes| E[Parse JSON Output]
+    E --> F[Extract Project IDs and Names]
+    F --> G[Return Project List]
+    D --> H[End]
+    G --> H
+
+% Flow Chart for create_gke_cluster Function
+flowchart TD
+    A[Start: Create GKE Cluster] --> B[Prepare Base Cluster Creation Command]
+    B --> C[Run Base Cluster Creation]
+    C --> D{Cluster Creation Successful?}
+    D -->|No| E[Log Base Cluster Creation Failure]
+    D -->|Yes| F[Prepare GPU Node Pool Creation Command]
+    F --> G[Run GPU Node Pool Creation]
+    G --> H{GPU Node Pool Creation Successful?}
+    H -->|No| I[Log GPU Node Pool Creation Failure]
+    H -->|Yes| J[Configure kubectl]
+    J --> K[Wait for Nodes to be Ready]
+    K --> L[Check GPU Node Status]
+    L --> M[Log Successful Cluster Creation]
+    M --> N[Return True]
+    E --> O[Return False]
+    I --> O
+    N --> P[End]
+    O --> P
+
+% Flow Chart for delete_gke_cluster Function
+flowchart TD
+    A[Start: Delete GKE Cluster] --> B{Force Delete?}
+    B -->|No| C[Prompt User Confirmation]
+    C --> D{User Confirms?}
+    D -->|No| E[Cancel Deletion]
+    D -->|Yes| F[Prepare Cluster Deletion Command]
+    B -->|Yes| F
+    F --> G[Run Cluster Deletion Command]
+    G --> H{Deletion Successful?}
+    H -->|Yes| I[Log Successful Deletion]
+    H -->|No| J[Log Deletion Failure]
+    I --> K[Return True]
+    J --> L[Return False]
+    E --> M[Return False]
+    K --> N[End]
+    L --> N
+    M --> N
+
+% Flow Chart for main Function
+flowchart TD
+    A[Start: Main Function] --> B[Parse Arguments]
+    B --> C{Check gcloud Authentication}
+    C -->|Failed| D[Exit with Error]
+    C -->|Successful| E{Check Project}
+    E -->|Failed| D
+    E -->|Successful| F{Command Type?}
+    F -->|create| G[Enable Required APIs]
+    G --> H[Create GKE Cluster]
+    F -->|delete| I[Delete GKE Cluster]
+    H --> J{Cluster Creation Successful?}
+    I --> K{Cluster Deletion Successful?}
+    J -->|Yes| L[Exit Success]
+    J -->|No| M[Exit with Error]
+    K -->|Yes| L
+    K -->|No| M
+    D --> N[End]
+    L --> N
+    M --> N

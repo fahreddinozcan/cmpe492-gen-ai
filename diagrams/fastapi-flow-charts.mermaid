@@ -1,0 +1,98 @@
+flowchart TD
+    %% Main Service Flow Chart
+    subgraph "Main Service Flow"
+        A[API Server Startup] --> B[Initialize Deployments]
+        B --> C[Load Helm Releases]
+        C --> D[Check Deployment Status]
+        D --> E[Update Active Deployments]
+        E --> F[API Ready]
+    end
+
+    %% Deployment Creation Flow
+    subgraph "Deployment Creation Flow"
+        G[POST /deployments/] --> H{Cluster ID provided?}
+        H -->|Yes| I[Set K8s Context]
+        H -->|No| J[Use Current Context]
+        I --> K[Generate Deployment ID]
+        J --> K
+        K --> L[Create Namespace]
+        L --> M[Submit Background Task]
+        M --> N[Deploy via Helm]
+        N --> O[Update Status]
+        O --> P[Return Response]
+    end
+
+    %% Deployment Status Check Flow
+    subgraph "Deployment Status Check Flow"
+        Q[get_enhanced_deployment_status] --> R[Get Basic Status]
+        R --> S[Check Pods Running]
+        S --> T{All Pods Ready?}
+        T -->|Yes| U[Check LLM API Health]
+        T -->|No| V[Parse Pod Logs]
+        U --> W{API Responding?}
+        W -->|Yes| X[Set Ready State]
+        W -->|No| V
+        V --> Y[Determine Status]
+        Y --> Z[Return Enhanced Status]
+        X --> Z
+    end
+
+    %% Cluster Management Flow
+    subgraph "Cluster Management Flow"
+        AA[POST /clusters/create] --> BB[Generate Cluster ID]
+        BB --> CC[Start Background Thread]
+        CC --> DD[Check GCloud Auth]
+        DD --> EE[Enable APIs]
+        EE --> FF[Create GKE Cluster]
+        FF --> GG[Add GPU Node Pool]
+        GG --> HH[Update Status]
+        HH --> II[Store in Active Clusters]
+    end
+
+    %% Metrics Collection Flow
+    subgraph "Metrics Collection Flow"
+        JJ[GET /api/deployments/{id}/metrics] --> KK{Cached Metrics?}
+        KK -->|Yes| LL[Return Cache]
+        KK -->|No| MM[Get External IP]
+        MM --> NN{Port Forward Needed?}
+        NN -->|Yes| OO[Setup Port Forward]
+        NN -->|No| PP[Direct Access]
+        OO --> QQ[Fetch Prometheus Metrics]
+        PP --> QQ
+        QQ --> RR[Parse Metrics]
+        RR --> SS[Calculate Summary]
+        SS --> TT[Cache Results]
+        TT --> UU[Return Metrics]
+    end
+
+    %% WebSocket Logs Flow
+    subgraph "WebSocket Logs Flow"
+        VV[WebSocket Connect] --> WW[Find Deployment]
+        WW --> XX[Get Pod Names]
+        XX --> YY[Start Log Streaming]
+        YY --> ZZ[kubectl logs -f]
+        ZZ --> AAA[Read Stream]
+        AAA --> BBB[Send to Client]
+        BBB --> CCC{Client Connected?}
+        CCC -->|Yes| AAA
+        CCC -->|No| DDD[Close Stream]
+    end
+
+    %% Chat Proxy Flow
+    subgraph "Chat Proxy Flow"
+        EEE[POST /deployments/{id}/chat] --> FFF[Check Deployment Ready]
+        FFF --> GGG{LLM Ready?}
+        GGG -->|No| HHH[Return Error]
+        GGG -->|Yes| III[Get Service URL]
+        III --> JJJ[Proxy Request]
+        JJJ --> KKK[Forward to LLM]
+        KKK --> LLL[Return Response]
+    end
+
+    style A fill:#e1f5fe
+    style G fill:#f3e5f5
+    style Q fill:#e8f5e9
+    style AA fill:#fff3e0
+    style JJ fill:#fce4ec
+    style VV fill:#f1f8e9
+    style EEE fill:#e3f2fd

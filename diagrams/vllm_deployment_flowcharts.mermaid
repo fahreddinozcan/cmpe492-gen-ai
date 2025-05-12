@@ -1,0 +1,54 @@
+% Flow Chart for create_namespace_if_not_exists Function
+flowchart TD
+    A[Start: Check Namespace] --> B{Namespace Exists?}
+    B -->|No| C[Create Namespace]
+    B -->|Yes| D[Log Namespace Already Exists]
+    C --> E[End]
+    D --> E
+
+% Flow Chart for deploy_vllm Function
+flowchart TD
+    A[Start: Deploy vLLM] --> B{Model Path Provided?}
+    B -->|No| C[Check Command Type]
+    C -->|Not 'list' or 'delete'| D[Return False]
+    B -->|Yes| E[Create Namespace]
+    E --> F[Generate Values File]
+    F --> G{Debug Mode?}
+    G -->|Yes| H[Log Values File Content]
+    G -->|No| I[Prepare Helm Command]
+    H --> I
+    I --> J[Run Helm Upgrade/Install]
+    J --> K[Delete Temporary Values File]
+    K --> L[Log Deployment Details]
+    L --> M[Log Port-Forward Instructions]
+    M --> N[Return True]
+    D --> O[End]
+    N --> O
+
+% Flow Chart for delete_deployment Function
+flowchart TD
+    A[Start: Delete vLLM Deployment] --> B[Prepare Helm Uninstall Command]
+    B --> C[Run Helm Uninstall]
+    C --> D{Deletion Successful?}
+    D -->|Yes| E[Log Successful Deletion]
+    D -->|No| F[Log Deletion Error]
+    E --> G[Return True]
+    F --> H[Return False]
+    G --> I[End]
+    H --> I
+
+% Flow Chart for list_deployments Function
+flowchart TD
+    A[Start: List vLLM Deployments] --> B[Prepare Helm List Command]
+    B --> C[Run Helm List Command]
+    C --> D{Parse JSON Output}
+    D -->|Success| E[Filter vLLM Deployments]
+    D -->|Failure| F[Log Parsing Error]
+    E --> G{vLLM Deployments Found?}
+    G -->|Yes| H[Log Deployment Details]
+    G -->|No| I[Log No Deployments Found]
+    H --> J[Return True]
+    I --> J
+    F --> K[Return False]
+    J --> L[End]
+    K --> L
