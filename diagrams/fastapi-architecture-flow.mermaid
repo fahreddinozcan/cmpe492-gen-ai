@@ -1,0 +1,101 @@
+flowchart TD
+    %% API Endpoints Architecture
+    subgraph "API Endpoints Architecture"
+        A[Client Request] --> B{Endpoint Type}
+        
+        %% Deployment Endpoints
+        B -->|Deployment| C[Deployment Endpoints]
+        C --> C1[POST /deployments/]
+        C --> C2[GET /deployments/]
+        C --> C3[GET /deployments/{id}]
+        C --> C4[DELETE /deployments/{id}]
+        C --> C5[GET /deployments/{id}/logs]
+        C --> C6[GET /deployments/{id}/metrics]
+        C --> C7[POST /deployments/{id}/chat]
+        
+        %% Cluster Endpoints
+        B -->|Cluster| D[Cluster Endpoints]
+        D --> D1[POST /clusters/create]
+        D --> D2[POST /clusters/delete]
+        D --> D3[POST /clusters/status]
+        D --> D4[GET /clusters]
+        D --> D5[GET /clusters/{id}]
+        
+        %% WebSocket Endpoints
+        B -->|WebSocket| E[WebSocket Endpoints]
+        E --> E1[/ws/logs/{deployment_id}]
+        E --> E2[/ws/cluster-logs/{cluster_id}]
+        
+        %% GCloud Endpoints
+        B -->|GCloud| F[GCloud Endpoints]
+        F --> F1[GET /gcloud/auth/check]
+        F --> F2[GET /gcloud/project/check/{id}]
+        F --> F3[GET /gcloud/projects]
+    end
+
+    %% System Components Flow
+    subgraph "System Components & Data Flow"
+        G[FastAPI Server] --> H[Active Deployments Dict]
+        G --> I[Active Clusters Dict]
+        G --> J[Metrics Cache]
+        G --> K[Log Queue]
+        G --> L[Cluster Logs]
+        
+        %% External Integrations
+        M[Kubernetes API] --> N[kubectl Commands]
+        O[Google Cloud API] --> P[gcloud Commands]
+        Q[Helm] --> R[Helm Commands]
+        S[Docker Registry] --> T[vLLM Images]
+        
+        %% Background Tasks
+        U[Background Tasks] --> V[Deployment Creation]
+        U --> W[Cluster Creation]
+        U --> X[Log Streaming]
+        U --> Y[Metrics Collection]
+    end
+
+    %% Request Processing Flow
+    subgraph "Request Processing Flow"
+        Z[API Request] --> AA{Authentication Required?}
+        AA -->|Yes| BB[Check GCloud Auth]
+        BB --> CC{Auth Valid?}
+        CC -->|No| DD[Return 401]
+        CC -->|Yes| EE[Process Request]
+        AA -->|No| EE
+        EE --> FF[Validate Input]
+        FF --> GG{Valid Input?}
+        GG -->|No| HH[Return 400]
+        GG -->|Yes| II[Execute Business Logic]
+        II --> JJ[Update State]
+        JJ --> KK[Return Response]
+    end
+
+    %% Error Handling Flow
+    subgraph "Error Handling Flow"
+        LL[Exception Occurred] --> MM{Error Type}
+        MM -->|Validation Error| NN[Return 400]
+        MM -->|Not Found Error| OO[Return 404]
+        MM -->|Auth Error| PP[Return 401]
+        MM -->|Server Error| QQ[Log Error]
+        QQ --> RR[Return 500]
+        NN --> SS[Error Response]
+        OO --> SS
+        PP --> SS
+        RR --> SS
+    end
+
+    %% Monitoring & Observability
+    subgraph "Monitoring & Observability"
+        TT[Metrics Collection] --> UU[Prometheus Metrics]
+        TT --> VV[Google Cloud Monitoring]
+        WW[Log Aggregation] --> XX[Application Logs]
+        WW --> YY[Cluster Logs]
+        ZZ[Health Checks] --> AAA[/health Endpoint]
+        ZZ --> BBB[Deployment Status]
+    end
+
+    style A fill:#e1f5fe
+    style G fill:#e8f5e9
+    style Z fill:#fff3e0
+    style LL fill:#ffebee
+    style TT fill:#f1f8e9

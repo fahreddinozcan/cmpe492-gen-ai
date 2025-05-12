@@ -1,0 +1,117 @@
+flowchart TD
+    %% Deployment Creation Detail
+    subgraph "create_deployment() Detailed Flow"
+        A[Receive DeploymentRequest] --> B{Cluster ID Provided?}
+        B -->|Yes| C[Get Cluster from active_clusters]
+        C --> D[Set kubectl context for cluster]
+        D --> E[Generate Deployment ID]
+        B -->|No| E
+        E --> F[Create Namespace object]
+        F --> G[Store in active_deployments]
+        G --> H[Add background task]
+        H --> I[Return Success Response]
+        I --> J[Background: deploy_vllm()]
+        J --> K[Update deployment status]
+    end
+
+    %% Get Enhanced Deployment Status Detail
+    subgraph "get_enhanced_deployment_status() Detailed Flow"
+        L[Start Status Check] --> M[get_deployment_status()]
+        M --> N[Get Pods with kubectl]
+        N --> O[Parse Pod States]
+        O --> P{All Pods Running?}
+        P -->|No| Q[Analyze Pod Conditions]
+        Q --> R[Set Status = Starting/Pending]
+        P -->|Yes| S[Check Service External IP]
+        S --> T[Try Health Check]
+        T --> U{Health Check Success?}
+        U -->|No| V[Check Container Logs]
+        V --> W[Parse Log Messages]
+        W --> X{Model Loaded?}
+        X -->|Yes| Y[Set Status = Loading]
+        X -->|No| Z[Set Status = Downloading]
+        U -->|Yes| AA[Set Status = Ready]
+        AA --> BB[Get Available Models]
+        BB --> CC[Return Enhanced Status]
+        Y --> CC
+        Z --> CC
+        R --> CC
+    end
+
+    %% Cluster Creation Detail
+    subgraph "_create_cluster() Detailed Flow"
+        DD[Start Cluster Creation] --> EE[Check gcloud auth]
+        EE --> FF{Auth Valid?}
+        FF -->|No| GG[Raise Auth Error]
+        FF -->|Yes| HH[Verify Project Access]
+        HH --> II[Enable Required APIs]
+        II --> JJ[Create Basic GKE Cluster]
+        JJ --> KK[Wait for Cluster Ready]
+        KK --> LL[Add GPU Node Pool]
+        LL --> MM[Update Progress]
+        MM --> NN[Get Cluster Endpoint]
+        NN --> OO[Update active_clusters]
+        OO --> PP[Set Status = RUNNING]
+    end
+
+    %% Metrics Fetching Detail
+    subgraph "fetch_deployment_metrics() Detailed Flow"
+        QQ[Start Metrics Fetch] --> RR[Get Service External IP]
+        RR --> SS{Has External IP?}
+        SS -->|No| TT[Find Pod Name]
+        TT --> UU[Setup Port Forward]
+        UU --> VV[Connect to localhost:8000]
+        SS -->|Yes| WW[Connect Directly]
+        VV --> XX[Fetch /metrics Endpoint]
+        WW --> XX
+        XX --> YY{Request Success?}
+        YY -->|No| ZZ[Return Error]
+        YY -->|Yes| AAA[Parse Prometheus Metrics]
+        AAA --> BBB[Calculate Summary]
+        BBB --> CCC[Return Metrics Data]
+    end
+
+    %% Log Streaming Detail
+    subgraph "stream_logs() Detailed Flow"
+        DDD[Start Log Stream] --> EEE[Get Pods in Namespace]
+        EEE --> FFF[Filter by Release Name]
+        FFF --> GGG{Pod Type Filter?}
+        GGG -->|vLLM| HHH[Keep vLLM Pods Only]
+        GGG -->|Router| III[Keep Router Pods Only]
+        GGG -->|None| JJJ[Keep All Pods]
+        HHH --> KKK[For Each Pod]
+        III --> KKK
+        JJJ --> KKK
+        KKK --> LLL[kubectl logs -f]
+        LLL --> MMM[Read Stream Lines]
+        MMM --> NNN[Format Log Entry]
+        NNN --> OOO[Send to WebSocket]
+        OOO --> PPP{More Lines?}
+        PPP -->|Yes| MMM
+        PPP -->|No| QQQ[Stream Complete]
+    end
+
+    %% Initialize Deployments Detail
+    subgraph "initialize_deployments() Detailed Flow"
+        RRR[App Startup] --> SSS[Initialize Empty Dict]
+        SSS --> TTT[Check kubectl Access]
+        TTT --> UUU{kubectl Available?}
+        UUU -->|No| VVV[Skip Init, Return]
+        UUU -->|Yes| WWW[Get All Namespaces]
+        WWW --> XXX[For Each Namespace]
+        XXX --> YYY[Get Helm Releases]
+        YYY --> ZZZ[Filter vLLM Releases]
+        ZZZ --> AAAA[Generate Deployment ID]
+        AAAA --> BBBB[Get Enhanced Status]
+        BBBB --> CCCC[Add to active_deployments]
+        CCCC --> DDDD{More Namespaces?}
+        DDDD -->|Yes| XXX
+        DDDD -->|No| EEEE[Init Complete]
+    end
+
+    style A fill:#e1f5fe
+    style L fill:#e8f5e9
+    style DD fill:#fff3e0
+    style QQ fill:#fce4ec
+    style DDD fill:#f1f8e9
+    style RRR fill:#f3e5f5

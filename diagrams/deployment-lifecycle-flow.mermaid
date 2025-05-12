@@ -1,0 +1,125 @@
+flowchart TD
+    %% Deployment Lifecycle Flow
+    subgraph "Deployment Lifecycle Management"
+        A[Deployment Request] --> B[Generate Unique ID]
+        B --> C[Create Namespace Entry]
+        C --> D{Cluster Specified?}
+        D -->|Yes| E[Set Kubernetes Context]
+        D -->|No| F[Use Current Context]
+        E --> G[Validate Cluster Access]
+        F --> G
+        G --> H[Store Initial State]
+        H --> I[Status: CREATING]
+        I --> J[Submit Background Task]
+    end
+
+    %% Background Deployment Process
+    subgraph "Background Deployment Process"
+        K[Background Task Start] --> L[Create Kubernetes Namespace]
+        L --> M[Prepare Helm Values]
+        M --> N[Deploy Helm Chart]
+        N --> O{Deployment Success?}
+        O -->|No| P[Status: FAILED]
+        O -->|Yes| Q[Status: DEPLOYED]
+        P --> R[Log Error]
+        Q --> S[Monitor Pod Creation]
+    end
+
+    %% Status Monitoring Loop
+    subgraph "Status Monitoring Loop"
+        T[Check Deployment Status] --> U[Get Pod Information]
+        U --> V{All Pods Created?}
+        V -->|No| W[Status: CREATING]
+        V -->|Yes| X[Check Pod Readiness]
+        X --> Y{All Pods Ready?}
+        Y -->|No| Z[Check Container Status]
+        Z --> AA{Containers Starting?}
+        AA -->|Yes| BB[Status: STARTING]
+        AA -->|No| CC[Status: PENDING]
+        Y -->|Yes| DD[Check Service Health]
+    end
+
+    %% Health Check Process
+    subgraph "Health Check Process"
+        EE[Service Health Check] --> FF{External IP Available?}
+        FF -->|No| GG[Setup Port Forward]
+        FF -->|Yes| HH[Direct Connection]
+        GG --> II[Connect via Localhost]
+        HH --> II
+        II --> JJ[Query /v1/models]
+        JJ --> KK{API Responding?}
+        KK -->|No| LL[Parse Container Logs]
+        LL --> MM{Model Loading?}
+        MM -->|Yes| NN[Status: LOADING]
+        MM -->|No| OO[Status: ERROR]
+        KK -->|Yes| PP[Check Models Available]
+        PP --> QQ{Models Ready?}
+        QQ -->|Yes| RR[Status: READY]
+        QQ -->|No| NN
+    end
+
+    %% State Transitions
+    subgraph "Valid State Transitions"
+        SS[CREATING] --> TT[DEPLOYED]
+        TT --> UU[STARTING]
+        UU --> VV[LOADING]
+        VV --> WW[READY]
+        SS --> XX[FAILED]
+        TT --> XX
+        UU --> XX
+        VV --> XX
+        WW --> YY[DELETED]
+        XX --> YY
+    end
+
+    %% Data Persistence
+    subgraph "Data Persistence & Recovery"
+        ZZ[Server Restart] --> AAA[initialize_deployments()]
+        AAA --> BBB[Scan All Namespaces]
+        BBB --> CCC[Find Helm Releases]
+        CCC --> DDD[Generate Deterministic IDs]
+        DDD --> EEE[Restore active_deployments]
+        EEE --> FFF[Update Status Information]
+        FFF --> GGG[Ready for New Requests]
+    end
+
+    %% Error Handling
+    subgraph "Error Handling & Recovery"
+        HHH[Deployment Error] --> III{Error Type}
+        III -->|Kubernetes Error| JJJ[Check Cluster Access]
+        III -->|Resource Error| KKK[Check Resource Quotas]
+        III -->|Network Error| LLL[Check Service Config]
+        III -->|Image Error| MMM[Check Image Availability]
+        JJJ --> NNN[Retry with Fixes]
+        KKK --> NNN
+        LLL --> NNN
+        MMM --> NNN
+        NNN --> OOO{Retry Success?}
+        OOO -->|Yes| PPP[Update Status]
+        OOO -->|No| QQQ[Mark as Failed]
+    end
+
+    %% Metrics & Monitoring
+    subgraph "Metrics & Monitoring"
+        RRR[Metrics Request] --> SSS{Cached?}
+        SSS -->|Yes| TTT[Return Cache]
+        SSS -->|No| UUU[Fetch Fresh Data]
+        UUU --> VVV[Parse Prometheus]
+        VVV --> WWW[Calculate Summary]
+        WWW --> XXX[Update Cache]
+        XXX --> YYY[Return Metrics]
+        
+        ZZZ[Log Streaming] --> AAAA[WebSocket Connection]
+        AAAA --> BBBB[Find Target Pods]
+        BBBB --> CCCC[Stream kubectl logs]
+        CCCC --> DDDD[Send to Client]
+    end
+
+    style A fill:#e1f5fe
+    style K fill:#e8f5e9
+    style T fill:#fff3e0
+    style EE fill:#fce4ec
+    style SS fill:#f1f8e9
+    style ZZ fill:#f3e5f5
+    style HHH fill:#ffebee
+    style RRR fill:#e3f2fd
