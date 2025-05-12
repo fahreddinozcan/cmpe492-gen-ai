@@ -114,18 +114,6 @@ export default function Analytics() {
     timeInterval
   );
 
-  // Fetch cost data for selected deployment
-  const {
-    data: deploymentCostData,
-    isLoading: isLoadingDeploymentCosts,
-  } = useDeploymentCosts(selectedDeployment, timeInterval);
-
-  // Fetch all costs data
-  const {
-    data: allCostsData,
-    isLoading: isLoadingAllCosts,
-  } = useAllCosts(timeInterval);
-
   // Chart data state
   const [tokenChartData, setTokenChartData] = React.useState<
     Array<{ time: string; promptTokens: number; generationTokens: number }>

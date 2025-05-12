@@ -8,9 +8,9 @@ Users can view the list of clusters in the Clusters Tab for each project. For ea
 
 - Cluster Name
 - Project ID
-- Zone
+- Zone [(for more information)](https://cloud.google.com/compute/docs/regions-zones#available)
 - Status
-- GPU Type
+- GPU Type [(for more information)](https://cloud.google.com/compute/docs/gpus)
 - GPU Count
 - Created (Date)
 
@@ -25,14 +25,14 @@ In the Cluster Details page, users can see the following information:
 - Cluster Status
 - Created (Date)
 - Project ID
-- Zone
+- Zone [(for more information)](https://cloud.google.com/compute/docs/regions-zones#available)
 - Endpoint
 
 **Node Information**
 
 - CPU Nodes (Count)
 - GPU Nodes (Count)
-- GPU Type
+- GPU Type [(for more information)](https://cloud.google.com/compute/docs/gpus)
 
 **Instructions**
 
@@ -59,13 +59,13 @@ Users can create clusters with the following configuration options:
 
 **CPU Node Configuration**
 
-- Machine Type (e2-standard-4, e2-standard-8, e2-standard-16)
+- Machine Type (e2-standard-4, e2-standard-8, e2-standard-16) [(for more information)](https://cloud.google.com/compute/docs/general-purpose-machines)
 - Number of Nodes (1-10)
 
 **GPU Node Configuration**
 
 - GPU Pool Name
-- GPU Machine Type (g2-standard-8, g2-standard-16, g2-standard-32)
+- GPU Machine Type (g2-standard-8, g2-standard-16, g2-standard-32) [(for more information)](https://cloud.google.com/compute/docs/general-purpose-machines)
 - GPU Type (NVIDIA L4, T4, A100, V100)
 - GPU Nodes (1-10)
 - GPUs per Node (1-8)
