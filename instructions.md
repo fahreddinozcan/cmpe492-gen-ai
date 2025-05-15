@@ -30,6 +30,15 @@ gcloud config set project YOUR_PROJECT_ID
 
 ## 2. Quick Setup with run-dev.sh
 
+### 2.1 Clone the Repository (if you haven't already)
+
+```bash
+git clone https://github.com/fahreddinozcan/cmpe492-gen-ai.git
+cd cmpe492-gen-ai
+```
+
+### 2.2 Run the Development Script
+
 For a quick setup of the development environment, you can use the provided script:
 
 ```bash
@@ -88,3 +97,181 @@ If you prefer to set up manually or need more control, continue with the steps b
     ```
 
 </details>
+
+## 3. Creating the Cluster
+
+Now that we have the development environment set up, we can create our workflow by creating a cluster.
+
+### 3.1 Navigate to Cluster Creation
+
+From the dashboard, click on "Clusters" in the sidebar, then click the "Create Cluster" button.
+
+![Dashboard View](screenshots/1.png)
+
+### 3.2 Configure Your Cluster
+
+Fill in the cluster creation form:
+
+1. **Project Information**:
+
+   - Select your Project ID from the dropdown
+   - Choose a Zone (e.g., us-central1-a), this is where your LLM will be served
+   - The Cluster Name will be auto-generated, you can change it if you want
+
+2. **CPU Node Configuration**:
+
+   - Select Machine Type (e.g., e2-standard-8)
+   - Set Number of Nodes (1-10)
+
+3. **GPU Node Configuration**:
+   - Enter GPU Pool Name
+   - Select GPU Machine Type (e.g., g2-standard-16)
+   - Choose GPU Type (e.g., NVIDIA L4)
+   - Set GPU Nodes count
+   - Configure GPUs per Node
+   - Set Min/Max GPU Nodes for autoscaling
+
+![Cluster Configuration](screenshots/2.png)
+
+### 3.3 Create the Cluster
+
+Click "Create Cluster" and wait for the cluster to be provisioned. This process typically takes 5-10 minutes.
+
+You can monitor the cluster creation progress in the Cluster Details page:
+
+![Cluster Creation Progress](screenshots/3.png)
+
+## 4. Deploying an LLM Model
+
+### 4.1 Navigate to Deployment Creation
+
+From the dashboard, click on "Deployments" in the sidebar, then click the "Create Deployment" button.
+
+![Deployments View](screenshots/4.png)
+
+### 4.2 Configure Your Deployment
+
+Fill in the deployment creation form:
+
+1. **Basic Settings**:
+
+   - Select your Target Cluster from the dropdown
+   - Enter the Model Path (e.g., google/gemma-1.1-2b-it)
+   - The Deployment Name will be auto-generated based on the model
+   - Enter your Hugging Face Token if using a private model
+
+2. **Advanced Settings** (optional):
+   - Configure CPU Count
+   - Select Memory (4GB, 8GB, 16GB, 32GB)
+   - Set GPU Count
+   - Choose GPU Type
+   - Configure Data Type (bfloat16, float16, float32)
+   - Set Tensor Parallel Size
+   - Select Environment
+   - Toggle Enable Chunked Prefill if needed
+
+![Deployment Configuration](screenshots/5.png)
+
+### 4.3 Create the Deployment
+
+Click "Create Deployment" to start the deployment process. The system will:
+
+1. Pull the model from Hugging Face
+2. Create the necessary resources and deployments on the cluster
+3. Deploy the vLLM service with your configuration
+
+You can monitor the deployment progress in the Deployment Details page:
+
+![Deployment Progress](screenshots/6.png)
+
+## 5. Interacting with Your Deployment
+
+### 5.1 View Deployment Details
+
+Once the deployment is complete, you can view its details by clicking on it in the Deployments list.
+
+![Deployment Details](screenshots/7.png)
+
+### 5.2 Chat with the Model
+
+Click the "Chat with this model" button to open the Completions interface.
+
+![Chat Interface](screenshots/8.png)
+
+### 5.3 View API Usage Examples
+
+The Deployment Details page provides API usage examples that you can copy and use in your applications.
+
+![API Examples](screenshots/9.png)
+
+### 5.4 Monitor Logs
+
+You can view real-time logs from your deployment by clicking the "Logs" tab.
+
+![Logs View](screenshots/10.png)
+
+## 6. Monitoring Metrics
+
+### 6.1 Navigate to Analytics
+
+Click on "Analytics" in the sidebar to view performance metrics for your deployments.
+
+![Analytics View](screenshots/11.png)
+
+### 6.2 Available Metrics
+
+The Analytics page displays various metrics:
+
+- **Token Metrics**: Prompt Tokens, Generation Tokens, Total Tokens, Token Throughput
+- **Timing Metrics**: Time to First Token, Time per Output Token
+- **End-to-End Latency**: E2E Latency (P95, P50, P99)
+- **Request Metrics**: Requests Completed, Requests per Second
+- **GPU Metrics**: GPU Utilization, GPU Cache Usage
+
+## 7. Troubleshooting
+
+### 7.1 Check Deployment Status
+
+If your deployment is not working as expected, check its status:
+
+```bash
+kubectl get pods -n vllm
+```
+
+### 7.2 View Detailed Logs
+
+For more detailed logs, use:
+
+```bash
+kubectl logs -n vllm deployment/vllm-gemma
+```
+
+### 7.3 Check for Events
+
+Look for any events that might indicate issues:
+
+```bash
+kubectl get events -n vllm
+```
+
+### 7.4 Common Issues and Solutions
+
+#### Issue: Deployment stuck in "Pending" state
+
+**Solution**: Check if there are enough resources in your cluster:
+
+```bash
+kubectl describe pod -n vllm
+```
+
+#### Issue: "Error: failed to pull model"
+
+**Solution**: Verify your Hugging Face token is correct and has the necessary permissions.
+
+#### Issue: GPU not detected
+
+**Solution**: Ensure your cluster has GPU nodes and the NVIDIA drivers are properly installed:
+
+```bash
+kubectl get nodes -o json | jq '.items[].status.capacity | select(has("nvidia.com/gpu"))'
+```
