@@ -1,5 +1,7 @@
 # vDeploy Setup and Usage Instructions
 
+vDeploy is a platform for deploying, managing, and monitoring LLM inference services on Kubernetes clusters.
+
 ## Prerequisites
 
 - [Google Cloud SDK](https://cloud.google.com/sdk/docs/install)
@@ -141,13 +143,19 @@ You can monitor the cluster creation progress in the Cluster Details page:
 
 ![Cluster Creation Progress](screenshots/3.png)
 
+![Cluster Creation Progress](screenshots/4.png)
+
+![Cluster Creation Progress](screenshots/5.png)
+
+![Cluster Creation Progress](screenshots/6.png)
+
 ## 4. Deploying an LLM Model
 
 ### 4.1 Navigate to Deployment Creation
 
 From the dashboard, click on "Deployments" in the sidebar, then click the "Create Deployment" button.
 
-![Deployments View](screenshots/4.png)
+![Deployments View](screenshots/9.png)
 
 ### 4.2 Configure Your Deployment
 
@@ -170,7 +178,15 @@ Fill in the deployment creation form:
    - Select Environment
    - Toggle Enable Chunked Prefill if needed
 
-![Deployment Configuration](screenshots/5.png)
+![Deployment Configuration](screenshots/10.png)
+
+![Deployment Configuration](screenshots/11.png)
+
+![Deployment Configuration](screenshots/12.png)
+
+![Deployment Configuration](screenshots/13.png)
+
+![Deployment Configuration](screenshots/14.png)
 
 ### 4.3 Create the Deployment
 
@@ -182,7 +198,9 @@ Click "Create Deployment" to start the deployment process. The system will:
 
 You can monitor the deployment progress in the Deployment Details page:
 
-![Deployment Progress](screenshots/6.png)
+![Deployment Progress](screenshots/15.png)
+
+![Deployment Progress](screenshots/16.png)
 
 ## 5. Interacting with Your Deployment
 
@@ -190,25 +208,29 @@ You can monitor the deployment progress in the Deployment Details page:
 
 Once the deployment is complete, you can view its details by clicking on it in the Deployments list.
 
-![Deployment Details](screenshots/7.png)
+![Deployment Details](screenshots/17.png)
 
 ### 5.2 Chat with the Model
 
 Click the "Chat with this model" button to open the Completions interface.
 
-![Chat Interface](screenshots/8.png)
+![Chat Interface](screenshots/20.png)
+
+![Chat Interface](screenshots/21.png)
 
 ### 5.3 View API Usage Examples
 
 The Deployment Details page provides API usage examples that you can copy and use in your applications.
 
-![API Examples](screenshots/9.png)
+![API Examples](screenshots/19.png)
 
 ### 5.4 Monitor Logs
 
 You can view real-time logs from your deployment by clicking the "Logs" tab.
 
-![Logs View](screenshots/10.png)
+![Logs View](screenshots/22.png)
+
+![Logs View](screenshots/23.png)
 
 ## 6. Monitoring Metrics
 
@@ -216,7 +238,7 @@ You can view real-time logs from your deployment by clicking the "Logs" tab.
 
 Click on "Analytics" in the sidebar to view performance metrics for your deployments.
 
-![Analytics View](screenshots/11.png)
+![Analytics View](screenshots/24.png)
 
 ### 6.2 Available Metrics
 
@@ -227,6 +249,12 @@ The Analytics page displays various metrics:
 - **End-to-End Latency**: E2E Latency (P95, P50, P99)
 - **Request Metrics**: Requests Completed, Requests per Second
 - **GPU Metrics**: GPU Utilization, GPU Cache Usage
+
+![Analytics View](screenshots/25.png)
+
+![Analytics View](screenshots/26.png)
+
+![Analytics View](screenshots/27.png)
 
 ## 7. Troubleshooting
 
