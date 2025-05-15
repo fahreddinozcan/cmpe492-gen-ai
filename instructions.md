@@ -49,7 +49,7 @@ If you prefer to set up manually or need more control, continue with the steps b
 <details>
   <summary>Click to see the expected execution output</summary>
 
-    ```shell
+    ```bash
     $ ./run-dev.sh
     === vDeploy Development Environment Setup ===
     Checking required tools...

@@ -47,6 +47,8 @@ vDeploy is a platform designed to simplify the deployment and management of Larg
 
 ## Architecture
 
+![vDeploy Architecture](diagrams/vdeploy_architecture.png)
+
 The platform consists of:
 
 1. **Frontend Console**: React-based web interface for managing clusters, deployments, and viewing metrics
