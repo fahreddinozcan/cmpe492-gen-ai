@@ -1,13 +1,5 @@
 import * as React from "react";
 import { useParams, useNavigate } from "react-router";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import { Skeleton } from "../components/ui/skeleton";
@@ -19,6 +11,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   CheckCircle,
+  CheckCircle2,
   Circle,
   Clock,
   Copy,
@@ -33,6 +26,8 @@ import {
   Terminal,
   Trash2,
   Zap,
+  BarChart3,
+  ArrowRight,
 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "../components/ui/alert";
 import {
@@ -148,93 +143,6 @@ function useClusterLogsContext() {
   return context;
 }
 
-// Component to display cluster logs
-function ClusterLogs() {
-  const { logs, isLoading, error, refreshLogs } = useClusterLogsContext();
-  const [autoScroll, setAutoScroll] = React.useState(true);
-  const logContainerRef = React.useRef<HTMLDivElement>(null);
-  
-  // Auto-scroll to bottom when new logs come in
-  React.useEffect(() => {
-    if (autoScroll && logContainerRef.current) {
-      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
-    }
-  }, [logs, autoScroll]);
-
-  return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between pb-2">
-        <div>
-          <CardTitle>Cluster Logs</CardTitle>
-          <CardDescription>
-            Real-time logs from the cluster creation process
-          </CardDescription>
-        </div>
-        <div className="flex items-center space-x-2">
-          <div className="flex items-center space-x-1">
-            <Checkbox 
-              id="auto-scroll" 
-              checked={autoScroll} 
-              onCheckedChange={(checked) => setAutoScroll(checked as boolean)}
-            />
-            <Label htmlFor="auto-scroll" className="text-sm">Auto-scroll</Label>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={refreshLogs}
-            disabled={isLoading}
-          >
-            {isLoading ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <RefreshCw className="h-4 w-4 mr-2" />
-            )}
-            Refresh
-          </Button>
-        </div>
-      </CardHeader>
-      <CardContent>
-        {error && (
-          <Alert variant="destructive" className="mb-4">
-            <AlertCircle className="h-4 w-4" />
-            <AlertTitle>Error</AlertTitle>
-            <AlertDescription>{error.toString()}</AlertDescription>
-          </Alert>
-        )}
-        
-        <div 
-          ref={logContainerRef}
-          className="bg-black text-green-400 font-mono text-sm p-4 rounded-md h-[400px] overflow-y-auto"
-        >
-          {logs.length === 0 ? (
-            <div className="flex items-center justify-center h-full text-gray-500">
-              <div className="text-center">
-                <Terminal className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                <p>No logs available yet</p>
-                <p className="text-xs mt-1">Logs will appear here as the cluster is being created</p>
-              </div>
-            </div>
-          ) : (
-            logs.map((log, index) => (
-              <div key={index} className="mb-1 leading-relaxed">
-                {log.timestamp && (
-                  <span className="text-gray-500 mr-2">
-                    [{new Date(log.timestamp).toLocaleTimeString()}]
-                  </span>
-                )}
-                <span className={`${log.level === 'ERROR' ? 'text-red-400' : log.level === 'WARNING' ? 'text-yellow-400' : ''}`}>
-                  {log.message}
-                </span>
-              </div>
-            ))
-          )}
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
 // Progress display component for clusters being created
 function ClusterProgressDisplay() {
   const { clusterInfo, progress, error, refreshLogs, isLoading } = useClusterLogsContext();
@@ -249,127 +157,124 @@ function ClusterProgressDisplay() {
   }, [clusterInfo, progress]);
 
   return (
-    <Card className="mb-6 shadow-md hover:shadow-lg transition-shadow duration-300">
-      <CardHeader>
-        <div className="flex items-center">
-          <Clock className="h-5 w-5 text-primary mr-2 animate-pulse" />
-          <CardTitle>Cluster Creation Progress</CardTitle>
-        </div>
-        <CardDescription>
-          Your cluster is being created. This process may take 10-15 minutes.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        {error && (
-          <Alert variant="destructive" className="mb-4">
-            <AlertCircle className="h-4 w-4" />
-            <AlertTitle>Error</AlertTitle>
-            <AlertDescription>{error.toString()}</AlertDescription>
-          </Alert>
-        )}
+    <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700/50 mb-6 shadow-xl">
+      <div className="flex items-center mb-2">
+        <Clock className="h-5 w-5 text-blue-400 mr-2 animate-pulse" />
+        <h3 className="text-lg font-semibold text-white">Cluster Creation Progress</h3>
+      </div>
+      <p className="text-gray-400 mb-4">
+        Your cluster is being created. This process may take 10-15 minutes.
+      </p>
+      
+      {error && (
+        <Alert variant="destructive" className="mb-4 bg-red-900/20 border-red-800 text-red-300">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Error</AlertTitle>
+          <AlertDescription>{error.toString()}</AlertDescription>
+        </Alert>
+      )}
 
-        {clusterInfo && (
-          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/30 dark:to-indigo-950/30 p-4 rounded-md mb-6 flex justify-between items-center border border-blue-100 dark:border-blue-900">
-            <div>
-              <p className="text-sm">
-                <span className="font-medium">Status:</span>{" "}
-                <span
-                  className={
-                    clusterInfo.status === "RUNNING"
-                      ? "text-green-600 dark:text-green-400 font-semibold"
-                      : clusterInfo.status === "ERROR"
-                      ? "text-red-600 dark:text-red-400 font-semibold"
-                      : "text-blue-600 dark:text-blue-400 font-semibold"
-                  }
-                >
-                  {clusterInfo.status}
-                </span>
-              </p>
-              <div className="flex items-center mt-1">
-                <span className="font-medium text-sm mr-2">Progress:</span>
-                <div className="w-48 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-                  <div 
-                    className="h-full bg-gradient-to-r from-blue-500 to-indigo-600 transition-all duration-300 ease-in-out" 
-                    style={{ width: `${progress}%` }}
-                  ></div>
+      {clusterInfo && (
+        <div className="bg-gray-900/70 p-4 rounded-md mb-6 flex justify-between items-center border border-gray-700">
+          <div>
+            <p className="text-sm text-gray-300">
+              <span className="font-medium">Status:</span>{" "}
+              <span
+                className={
+                  clusterInfo.status === "RUNNING"
+                    ? "text-green-400 font-semibold"
+                    : clusterInfo.status === "ERROR"
+                    ? "text-red-400 font-semibold"
+                    : "text-blue-400 font-semibold"
+                }
+              >
+                {clusterInfo.status}
+              </span>
+            </p>
+            <div className="flex items-center mt-1">
+              <span className="font-medium text-sm mr-2 text-gray-300">Progress:</span>
+              <div className="w-48 h-2 bg-gray-700 rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-gradient-to-r from-blue-600 to-blue-400 transition-all duration-300 ease-in-out" 
+                  style={{ width: `${progress}%` }}
+                ></div>
+              </div>
+              <span className="ml-2 text-sm font-medium text-gray-300">{progress}%</span>
+            </div>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={refreshLogs}
+            disabled={isLoading}
+            className="bg-gray-800/50 border-gray-600 hover:bg-gray-700 text-white"
+          >
+            {isLoading ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4 mr-2" />
+            )}
+            Refresh
+          </Button>
+        </div>
+      )}
+
+      <div className="space-y-6">
+        {CLUSTER_STAGES.map((stage, index) => {
+          const currentStageIndex = CLUSTER_STAGES.findIndex(
+            (s) => s.id === currentStage
+          );
+          let status: "complete" | "current" | "upcoming" | "failed" =
+            "upcoming";
+
+          if (index < currentStageIndex) {
+            status = "complete";
+          } else if (index === currentStageIndex) {
+            status = clusterInfo?.status === "ERROR" ? "failed" : "current";
+          }
+
+          return (
+            <div
+              key={stage.id}
+              className={`flex items-start ${
+                status === "upcoming" ? "opacity-50" : ""
+              }`}
+            >
+              <div className="mr-4 mt-1">
+                {status === "complete" && (
+                  <CheckCircle className="h-6 w-6 text-green-500" />
+                )}
+                {status === "current" && (
+                  <Clock className="h-6 w-6 text-blue-400 animate-pulse" />
+                )}
+                {status === "failed" && (
+                  <AlertCircle className="h-6 w-6 text-red-400" />
+                )}
+                {status === "upcoming" && (
+                  <Circle className="h-6 w-6 text-gray-500" />
+                )}
+              </div>
+              <div className="flex-1">
+                <div className="flex items-center">
+                  <h3 className="font-medium text-white">{stage.label}</h3>
+                  {status === "current" && (
+                    <span className="ml-2 text-xs bg-blue-900/30 text-blue-400 px-2 py-0.5 rounded-full">
+                      In Progress
+                    </span>
+                  )}
                 </div>
-                <span className="ml-2 text-sm font-medium">{progress}%</span>
+                <p className="text-sm text-gray-400">
+                  {stage.description}
+                </p>
+                {index < CLUSTER_STAGES.length - 1 && (
+                  <div className="h-6 border-l border-dashed border-gray-700 ml-3 mt-1"></div>
+                )}
               </div>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={refreshLogs}
-              disabled={isLoading}
-              className="border-blue-200 dark:border-blue-800 hover:bg-blue-50 dark:hover:bg-blue-900/50"
-            >
-              {isLoading ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <RefreshCw className="h-4 w-4 mr-2" />
-              )}
-              Refresh
-            </Button>
-          </div>
-        )}
-
-        <div className="space-y-6">
-          {CLUSTER_STAGES.map((stage, index) => {
-            const currentStageIndex = CLUSTER_STAGES.findIndex(
-              (s) => s.id === currentStage
-            );
-            let status: "complete" | "current" | "upcoming" | "failed" =
-              "upcoming";
-
-            if (index < currentStageIndex) {
-              status = "complete";
-            } else if (index === currentStageIndex) {
-              status = clusterInfo?.status === "ERROR" ? "failed" : "current";
-            }
-
-            return (
-              <div
-                key={stage.id}
-                className={`flex items-start ${
-                  status === "upcoming" ? "opacity-50" : ""
-                }`}
-              >
-                <div className="mr-4 mt-1">
-                  {status === "complete" && (
-                    <CheckCircle className="h-6 w-6 text-green-500" />
-                  )}
-                  {status === "current" && (
-                    <Clock className="h-6 w-6 text-primary animate-pulse" />
-                  )}
-                  {status === "failed" && (
-                    <AlertCircle className="h-6 w-6 text-destructive" />
-                  )}
-                  {status === "upcoming" && (
-                    <Circle className="h-6 w-6 text-muted-foreground" />
-                  )}
-                </div>
-                <div className="flex-1">
-                  <div className="flex items-center">
-                    <h3 className="font-medium">{stage.label}</h3>
-                    {status === "current" && (
-                      <span className="ml-2 text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">
-                        In Progress
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-sm text-muted-foreground">
-                    {stage.description}
-                  </p>
-                  {index < CLUSTER_STAGES.length - 1 && (
-                    <div className="h-6 border-l border-dashed border-muted ml-3 mt-1"></div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </CardContent>
-    </Card>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -383,18 +288,18 @@ function formatDate(dateString?: string) {
 function getStatusBadge(status: string) {
   switch (status) {
     case "RUNNING":
-      return <Badge className="bg-green-500">Running</Badge>;
+      return <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-500/20 text-green-400 border border-green-500/30">Running</span>;
     case "CREATING":
     case "PENDING":
-      return <Badge className="bg-blue-500">Creating</Badge>;
+      return <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-500/20 text-blue-400 border border-blue-500/30">Creating</span>;
     case "DELETING":
-      return <Badge className="bg-orange-500">Deleting</Badge>;
+      return <span className="px-2 py-1 rounded-full text-xs font-medium bg-orange-500/20 text-orange-400 border border-orange-500/30">Deleting</span>;
     case "ERROR":
-      return <Badge className="bg-red-500">Error</Badge>;
+      return <span className="px-2 py-1 rounded-full text-xs font-medium bg-red-500/20 text-red-400 border border-red-500/30">Error</span>;
     case "NOT_FOUND":
-      return <Badge variant="outline">Not Found</Badge>;
+      return <span className="px-2 py-1 rounded-full text-xs font-medium bg-gray-500/20 text-gray-400 border border-gray-500/30">Not Found</span>;
     default:
-      return <Badge variant="secondary">{status}</Badge>;
+      return <span className="px-2 py-1 rounded-full text-xs font-medium bg-gray-500/20 text-gray-400 border border-gray-500/30">{status}</span>;
   }
 }
 
@@ -451,197 +356,318 @@ export default function ClusterDetail() {
   };
 
   return (
-    <div className="container py-8">
-      <div className="flex items-center mb-6">
-        <Button variant="ghost" onClick={() => navigate("/clusters")}>
-          <ArrowLeft className="h-4 w-4 mr-2" />
-          Back to Clusters
-        </Button>
+    <div className="min-h-screen bg-gray-900">
+      {/* Hero Section */}
+      <div className="relative bg-gradient-to-br from-gray-800 via-gray-900 to-black">
+        <div className="absolute inset-0 bg-grid-pattern opacity-5"></div>
+        <div className="relative p-6 max-w-7xl mx-auto">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center space-x-4">
+              <div className="w-12 h-12 bg-gradient-to-br from-green-600 to-green-700 rounded-lg flex items-center justify-center shadow-lg">
+                <Cpu className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h1 className="text-3xl font-bold text-white">
+                  {isLoading ? (
+                    <Skeleton className="h-8 w-32 bg-gray-700" />
+                  ) : cluster ? (
+                    cluster.cluster_name
+                  ) : (
+                    "Cluster Details"
+                  )}
+                </h1>
+                <p className="text-gray-400">
+                  {!isLoading && cluster && (
+                    <>Manage your Kubernetes cluster ({cluster.cluster_id})</>
+                  )}
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <Button
+                variant="outline"
+                onClick={() => refetch()}
+                className="bg-gray-800/50 border-gray-600 hover:bg-gray-700 text-white"
+                disabled={isLoading}
+              >
+                <RefreshCw
+                  className={`w-4 h-4 mr-2 ${isLoading ? "animate-spin" : ""}`}
+                />
+                Refresh
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => navigate("/clusters")}
+                className="bg-gray-800/50 border-gray-600 hover:bg-gray-700 text-white"
+              >
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                Back to Clusters
+              </Button>
+            </div>
+          </div>
+        </div>
       </div>
 
-      {isLoading ? (
-        <div className="space-y-4">
-          <Skeleton className="h-12 w-1/2" />
-          <Skeleton className="h-64 w-full" />
-        </div>
-      ) : error ? (
-        <Card className="mb-6 border-red-200">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-red-500">Error</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p>{error.message}</p>
-          </CardContent>
-          <CardFooter>
-            <Button variant="outline" onClick={() => navigate("/clusters")}>
-              Back to Clusters
-            </Button>
-          </CardFooter>
-        </Card>
-      ) : !cluster ? (
-        <Card className="mb-6">
-          <CardHeader className="pb-2">
-            <CardTitle>Cluster Not Found</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p>The requested cluster could not be found.</p>
-          </CardContent>
-          <CardFooter>
-            <Button variant="outline" onClick={() => navigate("/clusters")}>
-              Back to Clusters
-            </Button>
-          </CardFooter>
-        </Card>
-      ) : (
-        <>
-          {cluster.status === "CREATING" && (
-            <ClusterLogsProvider clusterId={clusterId}>
-              <ClusterProgressDisplay />
-            </ClusterLogsProvider>
-          )}
-
-          <div className="grid gap-6 mb-6">
-            <Card>
-              <CardHeader>
-                <div className="flex items-center">
-                  <InfoIcon className="h-5 w-5 text-primary mr-2" />
-                  <CardTitle>Cluster Information</CardTitle>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <Table>
-                  <TableBody>
-                    <TableRow>
-                      <TableCell className="font-medium">Status</TableCell>
-                      <TableCell>{getStatusBadge(cluster.status)}</TableCell>
-                    </TableRow>
-                    <TableRow>
-                      <TableCell className="font-medium">Created</TableCell>
-                      <TableCell>{formatDate(cluster.created_at)}</TableCell>
-                    </TableRow>
-                    <TableRow>
-                      <TableCell className="font-medium">Project ID</TableCell>
-                      <TableCell>{cluster.project_id}</TableCell>
-                    </TableRow>
-                    <TableRow>
-                      <TableCell className="font-medium">Zone</TableCell>
-                      <TableCell>{cluster.zone}</TableCell>
-                    </TableRow>
-                    <TableRow>
-                      <TableCell className="font-medium">Endpoint</TableCell>
-                      <TableCell>{cluster.endpoint || "N/A"}</TableCell>
-                    </TableRow>
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Node Information</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <Table>
-                  <TableBody>
-                    <TableRow>
-                      <TableCell className="font-medium">CPU Nodes</TableCell>
-                      <TableCell>{cluster.node_count || "N/A"}</TableCell>
-                    </TableRow>
-                    <TableRow>
-                      <TableCell className="font-medium">GPU Nodes</TableCell>
-                      <TableCell>{cluster.gpu_node_count || "N/A"}</TableCell>
-                    </TableRow>
-                    <TableRow>
-                      <TableCell className="font-medium">GPU Type</TableCell>
-                      <TableCell>{cluster.gpu_type || "N/A"}</TableCell>
-                    </TableRow>
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
+      {/* Content Section */}
+      <div className="p-6 max-w-7xl mx-auto">
+        {isLoading ? (
+          <div className="grid grid-cols-1 gap-6">
+            <Skeleton className="h-64 w-full bg-gray-800/50" />
+            <Skeleton className="h-64 w-full bg-gray-800/50" />
           </div>
+        ) : error ? (
+          <div className="bg-red-900/20 border border-red-700/50 text-red-200 px-6 py-4 rounded-xl backdrop-blur-sm mb-6">
+            <div className="flex items-center">
+              <AlertCircle className="w-6 h-6 mr-3 text-red-400" />
+              <div className="flex-1">
+                <p className="font-semibold">Error Loading Cluster</p>
+                <p className="text-sm text-red-300/80 mt-1">
+                  {error.message}
+                </p>
+              </div>
+              <Button
+                onClick={() => navigate("/clusters")}
+                className="bg-red-600 hover:bg-red-700 text-white border-red-600"
+              >
+                Back to Clusters
+                <ArrowRight className="w-4 h-4 ml-2" />
+              </Button>
+            </div>
+          </div>
+        ) : !cluster ? (
+          <div className="bg-yellow-900/20 border border-yellow-700/50 text-yellow-200 px-6 py-4 rounded-xl backdrop-blur-sm mb-6">
+            <div className="flex items-center">
+              <AlertTriangle className="w-6 h-6 mr-3 text-yellow-400" />
+              <div className="flex-1">
+                <p className="font-semibold">Cluster Not Found</p>
+                <p className="text-sm text-yellow-300/80 mt-1">
+                  The requested cluster could not be found.
+                </p>
+              </div>
+              <Button
+                onClick={() => navigate("/clusters")}
+                className="bg-yellow-600 hover:bg-yellow-700 text-white border-yellow-600"
+              >
+                Back to Clusters
+                <ArrowRight className="w-4 h-4 ml-2" />
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* Progress Display for Creating Clusters */}
+            {cluster.status === "CREATING" && (
+              <ClusterLogsProvider clusterId={clusterId}>
+                <ClusterProgressDisplay />
+              </ClusterLogsProvider>
+            )}
 
-          {cluster.status === "RUNNING" && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Getting Started</CardTitle>
-                <CardDescription>
-                  Next steps to start using your GKE cluster
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <h3 className="font-medium mb-2">
-                    1. Connect to the cluster
+            {/* Status Overview Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+              {/* Status Card */}
+              <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700/50">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-gray-400 text-sm font-medium">
+                      Status
+                    </p>
+                    <p className="text-2xl font-bold text-white mt-2">
+                      {cluster.status}
+                    </p>
+                    <div className="flex items-center mt-2">
+                      {cluster.status === "RUNNING" ? (
+                        <span className="text-green-400 text-sm">
+                          <CheckCircle2 className="w-3 h-3 inline mr-1" />
+                          Operational
+                        </span>
+                      ) : cluster.status === "CREATING" ? (
+                        <span className="text-blue-400 text-sm">
+                          <Clock className="w-3 h-3 inline mr-1" />
+                          In Progress
+                        </span>
+                      ) : cluster.status === "ERROR" ? (
+                        <span className="text-red-400 text-sm">
+                          <AlertCircle className="w-3 h-3 inline mr-1" />
+                          Error
+                        </span>
+                      ) : (
+                        <span className="text-gray-400 text-sm">
+                          {cluster.status}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="w-12 h-12 bg-blue-600/20 rounded-lg flex items-center justify-center">
+                    <ServerIcon className="w-6 h-6 text-blue-400" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Project Card */}
+              <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700/50">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-gray-400 text-sm font-medium">
+                      Project ID
+                    </p>
+                    <p className="text-lg font-bold text-white mt-2 truncate max-w-[150px]">
+                      {cluster.project_id}
+                    </p>
+                    <div className="flex items-center mt-2">
+                      <span className="text-gray-400 text-sm">
+                        Zone: {cluster.zone}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="w-12 h-12 bg-green-600/20 rounded-lg flex items-center justify-center">
+                    <BarChart3 className="w-6 h-6 text-green-400" />
+                  </div>
+                </div>
+              </div>
+
+              {/* CPU Nodes Card */}
+              <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700/50">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-gray-400 text-sm font-medium">
+                      CPU Nodes
+                    </p>
+                    <p className="text-2xl font-bold text-white mt-2">
+                      {cluster.node_count || "0"}
+                    </p>
+                    <div className="flex items-center mt-2">
+                      <span className="text-gray-400 text-sm">
+                        Standard Nodes
+                      </span>
+                    </div>
+                  </div>
+                  <div className="w-12 h-12 bg-purple-600/20 rounded-lg flex items-center justify-center">
+                    <ServerIcon className="w-6 h-6 text-purple-400" />
+                  </div>
+                </div>
+              </div>
+
+              {/* GPU Nodes Card */}
+              <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700/50">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-gray-400 text-sm font-medium">
+                      GPU Nodes
+                    </p>
+                    <p className="text-2xl font-bold text-white mt-2">
+                      {cluster.gpu_node_count || "0"}
+                    </p>
+                    <div className="flex items-center mt-2">
+                      <span className="text-gray-400 text-sm">
+                        {cluster.gpu_type || "No GPU"}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="w-12 h-12 bg-orange-600/20 rounded-lg flex items-center justify-center">
+                    <Cpu className="w-6 h-6 text-orange-400" />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Cluster Details */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+              {/* Cluster Information */}
+              <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700/50">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-white">
+                    Cluster Information
                   </h3>
-                  <pre className="bg-gray-100 p-3 rounded-md overflow-x-auto">
-                    {`gcloud container clusters get-credentials ${cluster.cluster_name} \\
+                </div>
+                <div className="space-y-4">
+                  <div className="flex justify-between py-2 border-b border-gray-700/50">
+                    <span className="text-gray-400">Created</span>
+                    <span className="text-white">{formatDate(cluster.created_at)}</span>
+                  </div>
+                  <div className="flex justify-between py-2 border-b border-gray-700/50">
+                    <span className="text-gray-400">Cluster ID</span>
+                    <span className="text-white font-mono text-sm">{cluster.cluster_id}</span>
+                  </div>
+                  <div className="flex justify-between py-2 border-b border-gray-700/50">
+                    <span className="text-gray-400">Endpoint</span>
+                    <span className="text-white">{cluster.endpoint || "N/A"}</span>
+                  </div>
+                  <div className="flex justify-between py-2">
+                    <span className="text-gray-400">Status</span>
+                    <span>{getStatusBadge(cluster.status)}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Getting Started Section (for running clusters) */}
+              {cluster.status === "RUNNING" && (
+                <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700/50">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-semibold text-white">
+                      Getting Started
+                    </h3>
+                  </div>
+                  <div className="space-y-4">
+                    <div>
+                      <p className="text-gray-300 font-medium mb-2">
+                        1. Connect to the cluster
+                      </p>
+                      <div className="bg-black/40 p-3 rounded-md font-mono text-xs text-gray-300 overflow-x-auto border border-gray-700/50">
+                        {`gcloud container clusters get-credentials ${cluster.cluster_name} \\
   --zone=${cluster.zone} \\
   --project=${cluster.project_id}`}
-                  </pre>
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-gray-300 font-medium mb-2">
+                        2. Check GPU nodes
+                      </p>
+                      <div className="bg-black/40 p-3 rounded-md font-mono text-xs text-gray-300 overflow-x-auto border border-gray-700/50">
+                        kubectl get nodes -l cloud.google.com/gke-accelerator
+                      </div>
+                    </div>
+                    <div className="pt-2">
+                      <Button 
+                        className="bg-blue-600 hover:bg-blue-700 w-full" 
+                        onClick={() => navigate("/deployments/new")}
+                      >
+                        <Plus className="w-4 h-4 mr-2" />
+                        Create Deployment on this Cluster
+                      </Button>
+                    </div>
+                  </div>
                 </div>
-
-                <div>
-                  <h3 className="font-medium mb-2">2. Check GPU nodes</h3>
-                  <pre className="bg-gray-100 p-3 rounded-md overflow-x-auto">
-                    kubectl get nodes -l cloud.google.com/gke-accelerator
-                  </pre>
-                </div>
-
-                <div>
-                  <h3 className="font-medium mb-2">3. Deploy a vLLM service</h3>
-                  <p className="text-sm text-gray-600 mb-2">
-                    You can now deploy a vLLM service on this cluster from the
-                    Deployments section.
-                  </p>
-                  <Button onClick={() => navigate("/deployments/new")}>
-                    Create a Deployment
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {(cluster.status === "CREATING" || cluster.status === "RUNNING") && (
-            <div className="mb-6">
-              <ClusterLogsProvider clusterId={clusterId}>
-                <ClusterLogs />
-              </ClusterLogsProvider>
+              )}
             </div>
-          )}
 
-          {cluster.status !== "DELETING" && (
-            <Card className="mt-6">
-              <CardHeader>
-                <CardTitle>Danger Zone</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center justify-between p-3 border border-red-200 rounded-md">
+            {/* Danger Zone */}
+            {cluster.status !== "DELETING" && (
+              <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700/50 shadow-xl">
+                <div className="flex items-center mb-4">
+                  <AlertTriangle className="h-5 w-5 text-red-400 mr-2" />
+                  <h3 className="text-lg font-semibold text-white">Danger Zone</h3>
+                </div>
+                <div className="flex items-center justify-between p-4 bg-red-900/20 rounded-lg border border-red-700/30">
                   <div>
-                    <h3 className="font-medium text-red-600">Delete Cluster</h3>
-                    <p className="text-sm text-gray-600">
-                      This will permanently delete the cluster and all
-                      associated resources.
+                    <h3 className="font-medium text-red-400">Delete Cluster</h3>
+                    <p className="text-sm text-gray-400 mt-1">
+                      This will permanently delete the cluster and all associated resources.
                     </p>
                   </div>
                   <Button
                     variant="destructive"
                     onClick={handleDeleteCluster}
-                    // disabled={isDeleting}
+                    className="bg-red-600 hover:bg-red-700"
                   >
-                    {/* {isDeleting ? (
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    ) : ( */}
                     <Trash2 className="h-4 w-4 mr-2" />
-                    {/* )} */}
                     Delete Cluster
                   </Button>
                 </div>
-              </CardContent>
-            </Card>
-          )}
-        </>
-      )}
+              </div>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }

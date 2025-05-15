@@ -21,7 +21,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../components/ui/select";
-import { AlertCircle, ChevronDown } from "lucide-react";
+import { 
+  AlertCircle, 
+  ChevronDown, 
+  Plus,
+  Server,
+  ArrowLeft,
+  Settings
+} from "lucide-react";
 import { Alert, AlertTitle, AlertDescription } from "~/components/ui/alert";
 import { useClusters } from "../lib/cluster-api";
 import {
@@ -64,6 +71,7 @@ export default function NewDeployment() {
   const { mutate: createDeployment, isPending: isSubmitting } =
     useCreateDeployment();
   const [error, setError] = React.useState<string | null>(null);
+  const [isAdvancedOpen, setIsAdvancedOpen] = React.useState(false);
 
   // Fetch available clusters
   const {
@@ -158,378 +166,478 @@ export default function NewDeployment() {
   }
 
   return (
-    <div className="max-w-2xl mx-auto">
-      <h1 className="text-2xl font-bold mb-6">New Deployment</h1>
+    <div className="min-h-screen bg-gray-900">
+      {/* Hero Section */}
+      <div className="relative bg-gradient-to-br from-gray-800 via-gray-900 to-black">
+        <div className="absolute inset-0 bg-grid-pattern opacity-5"></div>
+        <div className="relative p-6 max-w-6xl mx-auto">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center space-x-4">
+              <div className="w-12 h-12 bg-gradient-to-br from-blue-600 to-blue-700 rounded-lg flex items-center justify-center shadow-lg">
+                <Server className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h1 className="text-3xl font-bold text-white">New Deployment</h1>
+                <p className="text-gray-400">Deploy a new model to your cluster</p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <Button 
+                variant="outline"
+                onClick={() => navigate("/deployments")}
+                className="bg-gray-800/50 border-gray-600 hover:bg-gray-700 text-white"
+              >
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                Back to Deployments
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
 
-      {error && (
-        <Alert variant="destructive" className="mb-6">
-          <AlertCircle className="h-4 w-4" />
-          <AlertTitle>Error</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
+      {/* Content Section */}
+      <div className="p-6 max-w-6xl mx-auto">
+        <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl border border-gray-700/50 shadow-xl p-6 mb-6">
+          {error && (
+            <Alert variant="destructive" className="mb-6">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>Error</AlertTitle>
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
 
-      <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-          {/* Cluster Selection Dropdown */}
-          <FormField
-            control={form.control}
-            name="cluster_id"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Target Cluster</FormLabel>
-                <FormControl>
-                  <Select
-                    onValueChange={field.onChange}
-                    defaultValue={field.value}
-                    disabled={isClustersLoading}
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+              {/* Main Form Section */}
+              <div className="grid grid-cols-1 gap-6">
+                {/* Cluster Selection Dropdown */}
+                <FormField
+                  control={form.control}
+                  name="cluster_id"
+                  render={({ field }) => (
+                    <FormItem className="bg-gray-900/50 p-4 rounded-lg border border-gray-700/50">
+                      <FormLabel className="text-white">Target Cluster</FormLabel>
+                      <FormControl>
+                        <Select
+                          onValueChange={field.onChange}
+                          defaultValue={field.value}
+                          disabled={isClustersLoading}
+                        >
+                          <SelectTrigger className="w-full bg-gray-800 border-gray-700 text-white">
+                            <SelectValue placeholder="Select a cluster for deployment" />
+                          </SelectTrigger>
+                          <SelectContent className="bg-gray-800 border-gray-700 text-white">
+                            {clusters && clusters.length > 0 ? (
+                              clusters.map((cluster) => (
+                                <SelectItem
+                                  key={cluster.cluster_id}
+                                  value={cluster.cluster_id}
+                                  className="text-white hover:bg-gray-700"
+                                >
+                                  {cluster.cluster_name} ({cluster.zone})
+                                </SelectItem>
+                              ))
+                            ) : (
+                              <SelectItem value="no-clusters" disabled className="text-gray-400">
+                                {isClustersLoading
+                                  ? "Loading clusters..."
+                                  : "No clusters available"}
+                              </SelectItem>
+                            )}
+                          </SelectContent>
+                        </Select>
+                      </FormControl>
+                      <FormDescription className="text-gray-400">
+                        Select the Kubernetes cluster where this model will be deployed
+                      </FormDescription>
+                      <FormMessage className="text-red-400" />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="model_path"
+                  render={({ field }) => (
+                    <FormItem className="bg-gray-900/50 p-4 rounded-lg border border-gray-700/50">
+                      <FormLabel className="text-white">Model</FormLabel>
+                      <div className="flex gap-2">
+                        <FormControl>
+                          <Input
+                            {...field}
+                            placeholder="Enter HuggingFace model path"
+                            className="bg-gray-800 border-gray-700 text-white"
+                          />
+                        </FormControl>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => navigate("/models")}
+                          className="border-gray-600 text-white hover:bg-gray-700"
+                        >
+                          Browse
+                        </Button>
+                      </div>
+                      <FormDescription className="text-gray-400">
+                        Enter a valid HuggingFace model path (e.g., google/gemma-1.1-2b-it)
+                      </FormDescription>
+                      <FormMessage className="text-red-400" />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="release_name"
+                  render={({ field }) => (
+                    <FormItem className="bg-gray-900/50 p-4 rounded-lg border border-gray-700/50">
+                      <FormLabel className="text-white">Deployment Name</FormLabel>
+                      <FormControl>
+                        <Input 
+                          {...field} 
+                          className="bg-gray-800 border-gray-700 text-white"
+                        />
+                      </FormControl>
+                      <FormDescription className="text-gray-400">
+                        A unique name for this deployment
+                      </FormDescription>
+                      <FormMessage className="text-red-400" />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="hf_token"
+                  render={({ field }) => (
+                    <FormItem className="bg-gray-900/50 p-4 rounded-lg border border-gray-700/50">
+                      <FormLabel className="text-white">Hugging Face Token</FormLabel>
+                      <FormControl>
+                        <Input 
+                          type="password" 
+                          {...field} 
+                          className="bg-gray-800 border-gray-700 text-white"
+                        />
+                      </FormControl>
+                      <FormDescription className="text-gray-400">
+                        Required for accessing private models
+                      </FormDescription>
+                      <FormMessage className="text-red-400" />
+                    </FormItem>
+                  )}
+                />
+
+                {/* Advanced Settings */}
+                <div className="bg-gray-900/50 rounded-lg border border-gray-700/50">
+                  <Collapsible 
+                    open={isAdvancedOpen} 
+                    onOpenChange={setIsAdvancedOpen} 
+                    className="w-full"
                   >
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Select a cluster for deployment" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {clusters && clusters.length > 0 ? (
-                        clusters.map((cluster) => (
-                          <SelectItem
-                            key={cluster.cluster_id}
-                            value={cluster.cluster_id}
-                          >
-                            {cluster.cluster_name} ({cluster.zone})
-                          </SelectItem>
-                        ))
-                      ) : (
-                        <SelectItem value="no-clusters" disabled>
-                          {isClustersLoading
-                            ? "Loading clusters..."
-                            : "No clusters available"}
-                        </SelectItem>
-                      )}
-                    </SelectContent>
-                  </Select>
-                </FormControl>
-                <FormDescription>
-                  Select the Kubernetes cluster where this model will be
-                  deployed
-                </FormDescription>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+                    <CollapsibleTrigger className="flex w-full items-center justify-between p-4 font-medium text-white hover:bg-gray-800/50 rounded-t-lg">
+                      <div className="flex items-center space-x-2">
+                        <Settings className="h-5 w-5 text-blue-400" />
+                        <span>Advanced Settings</span>
+                      </div>
+                      <ChevronDown className={`h-5 w-5 text-gray-400 transition-transform duration-200 ${isAdvancedOpen ? 'rotate-180' : ''}`} />
+                    </CollapsibleTrigger>
+                    
+                    <CollapsibleContent className="p-4 pt-2 space-y-6 border-t border-gray-700/50">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <FormField
+                          control={form.control}
+                          name="cpu_count"
+                          render={({ field }) => (
+                            <FormItem className="bg-gray-800/50 p-4 rounded-lg border border-gray-700/50">
+                              <FormLabel className="text-white">CPU Count</FormLabel>
+                              <FormControl>
+                                <Input
+                                  type="number"
+                                  {...field}
+                                  onChange={(e) => field.onChange(parseInt(e.target.value))}
+                                  className="bg-gray-800 border-gray-700 text-white"
+                                />
+                              </FormControl>
+                              <FormDescription className="text-gray-400">
+                                Number of CPU cores to allocate
+                              </FormDescription>
+                              <FormMessage className="text-red-400" />
+                            </FormItem>
+                          )}
+                        />
 
-          <FormField
-            control={form.control}
-            name="model_path"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Model</FormLabel>
-                <div className="flex gap-2">
-                  <FormControl>
-                    <Input
-                      {...field}
-                      placeholder="Enter HuggingFace model path"
-                    />
-                  </FormControl>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => navigate("/models")}
-                  >
-                    Browse
-                  </Button>
+                        <FormField
+                          control={form.control}
+                          name="memory"
+                          render={({ field }) => (
+                            <FormItem className="bg-gray-800/50 p-4 rounded-lg border border-gray-700/50">
+                              <FormLabel className="text-white">Memory</FormLabel>
+                              <FormControl>
+                                <Select
+                                  onValueChange={field.onChange}
+                                  defaultValue={field.value}
+                                >
+                                  <SelectTrigger className="w-full bg-gray-800 border-gray-700 text-white">
+                                    <SelectValue placeholder="Select memory size" />
+                                  </SelectTrigger>
+                                  <SelectContent className="bg-gray-800 border-gray-700 text-white">
+                                    {MEMORY_OPTIONS.map((option) => (
+                                      <SelectItem 
+                                        key={option.value} 
+                                        value={option.value}
+                                        className="text-white hover:bg-gray-700"
+                                      >
+                                        {option.label}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </FormControl>
+                              <FormDescription className="text-gray-400">
+                                Memory allocation for the deployment
+                              </FormDescription>
+                              <FormMessage className="text-red-400" />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <FormField
+                          control={form.control}
+                          name="gpu_count"
+                          render={({ field }) => (
+                            <FormItem className="bg-gray-800/50 p-4 rounded-lg border border-gray-700/50">
+                              <FormLabel className="text-white">GPU Count</FormLabel>
+                              <FormControl>
+                                <Input
+                                  type="number"
+                                  {...field}
+                                  onChange={(e) => field.onChange(parseInt(e.target.value))}
+                                  className="bg-gray-800 border-gray-700 text-white"
+                                />
+                              </FormControl>
+                              <FormDescription className="text-gray-400">
+                                Number of GPUs to allocate
+                              </FormDescription>
+                              <FormMessage className="text-red-400" />
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={form.control}
+                          name="gpu_type"
+                          render={({ field }) => (
+                            <FormItem className="bg-gray-800/50 p-4 rounded-lg border border-gray-700/50">
+                              <FormLabel className="text-white">GPU Type</FormLabel>
+                              <FormControl>
+                                <Select
+                                  onValueChange={field.onChange}
+                                  defaultValue={field.value}
+                                >
+                                  <SelectTrigger className="w-full bg-gray-800 border-gray-700 text-white">
+                                    <SelectValue placeholder="Select GPU type" />
+                                  </SelectTrigger>
+                                  <SelectContent className="bg-gray-800 border-gray-700 text-white">
+                                    {GPU_TYPE_OPTIONS.map((option) => (
+                                      <SelectItem 
+                                        key={option.value} 
+                                        value={option.value}
+                                        className="text-white hover:bg-gray-700"
+                                      >
+                                        {option.label}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </FormControl>
+                              <FormDescription className="text-gray-400">
+                                The type of GPU to use for inference
+                              </FormDescription>
+                              <FormMessage className="text-red-400" />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <FormField
+                          control={form.control}
+                          name="image_repo"
+                          render={({ field }) => (
+                            <FormItem className="bg-gray-800/50 p-4 rounded-lg border border-gray-700/50">
+                              <FormLabel className="text-white">Image Repository</FormLabel>
+                              <FormControl>
+                                <Input 
+                                  {...field} 
+                                  className="bg-gray-800 border-gray-700 text-white"
+                                />
+                              </FormControl>
+                              <FormDescription className="text-gray-400">
+                                Container image repository (e.g., vllm/vllm-openai)
+                              </FormDescription>
+                              <FormMessage className="text-red-400" />
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={form.control}
+                          name="image_tag"
+                          render={({ field }) => (
+                            <FormItem className="bg-gray-800/50 p-4 rounded-lg border border-gray-700/50">
+                              <FormLabel className="text-white">Image Tag</FormLabel>
+                              <FormControl>
+                                <Input 
+                                  {...field} 
+                                  className="bg-gray-800 border-gray-700 text-white"
+                                />
+                              </FormControl>
+                              <FormDescription className="text-gray-400">
+                                Container image tag (e.g., latest)
+                              </FormDescription>
+                              <FormMessage className="text-red-400" />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <FormField
+                          control={form.control}
+                          name="dtype"
+                          render={({ field }) => (
+                            <FormItem className="bg-gray-800/50 p-4 rounded-lg border border-gray-700/50">
+                              <FormLabel className="text-white">Data Type</FormLabel>
+                              <FormControl>
+                                <Select
+                                  onValueChange={field.onChange}
+                                  defaultValue={field.value}
+                                >
+                                  <SelectTrigger className="w-full bg-gray-800 border-gray-700 text-white">
+                                    <SelectValue placeholder="Select data type" />
+                                  </SelectTrigger>
+                                  <SelectContent className="bg-gray-800 border-gray-700 text-white">
+                                    {DTYPE_OPTIONS.map((option) => (
+                                      <SelectItem 
+                                        key={option.value} 
+                                        value={option.value}
+                                        className="text-white hover:bg-gray-700"
+                                      >
+                                        {option.label}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </FormControl>
+                              <FormDescription className="text-gray-400">
+                                Precision format for model weights
+                              </FormDescription>
+                              <FormMessage className="text-red-400" />
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={form.control}
+                          name="tensor_parallel_size"
+                          render={({ field }) => (
+                            <FormItem className="bg-gray-800/50 p-4 rounded-lg border border-gray-700/50">
+                              <FormLabel className="text-white">Tensor Parallel Size</FormLabel>
+                              <FormControl>
+                                <Input
+                                  type="number"
+                                  {...field}
+                                  onChange={(e) => field.onChange(parseInt(e.target.value))}
+                                  className="bg-gray-800 border-gray-700 text-white"
+                                />
+                              </FormControl>
+                              <FormDescription className="text-gray-400">
+                                Number of GPUs to split tensors across
+                              </FormDescription>
+                              <FormMessage className="text-red-400" />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+
+                      <FormField
+                        control={form.control}
+                        name="environment"
+                        render={({ field }) => (
+                          <FormItem className="bg-gray-800/50 p-4 rounded-lg border border-gray-700/50">
+                            <FormLabel className="text-white">Environment</FormLabel>
+                            <FormControl>
+                              <Select
+                                onValueChange={field.onChange}
+                                defaultValue={field.value}
+                              >
+                                <SelectTrigger className="w-full bg-gray-800 border-gray-700 text-white">
+                                  <SelectValue placeholder="Select environment" />
+                                </SelectTrigger>
+                                <SelectContent className="bg-gray-800 border-gray-700 text-white">
+                                  {ENVIRONMENT_OPTIONS.map((option) => (
+                                    <SelectItem 
+                                      key={option.value} 
+                                      value={option.value}
+                                      className="text-white hover:bg-gray-700"
+                                    >
+                                      {option.label}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </FormControl>
+                            <FormDescription className="text-gray-400">
+                              Deployment environment for the model
+                            </FormDescription>
+                            <FormMessage className="text-red-400" />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name="enable_chunked_prefill"
+                        render={({ field }) => (
+                          <FormItem className="flex flex-row items-center justify-between bg-gray-800/50 rounded-lg border border-gray-700/50 p-4">
+                            <div className="space-y-0.5">
+                              <FormLabel className="text-white text-base">
+                                Enable Chunked Prefill
+                              </FormLabel>
+                              <FormDescription className="text-gray-400">
+                                Optimizes memory usage for large context windows
+                              </FormDescription>
+                            </div>
+                            <FormControl>
+                              <Switch
+                                checked={field.value}
+                                onCheckedChange={field.onChange}
+                              />
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
+                    </CollapsibleContent>
+                  </Collapsible>
                 </div>
-                <FormDescription>
-                  Enter a valid HuggingFace model path (e.g.,
-                  google/gemma-1.1-2b-it)
-                </FormDescription>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+              </div>
 
-          <FormField
-            control={form.control}
-            name="release_name"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Deployment Name</FormLabel>
-                <FormControl>
-                  <Input {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          {/* Namespace field removed - using release name as namespace */}
-
-          <FormField
-            control={form.control}
-            name="hf_token"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Hugging Face Token</FormLabel>
-                <FormControl>
-                  <Input type="password" {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <Collapsible className="w-full space-y-4">
-            <CollapsibleTrigger className="flex w-full items-center justify-between rounded-lg border p-4 font-medium">
-              Advanced Settings
-              <ChevronDown className="h-4 w-4" />
-            </CollapsibleTrigger>
-            <CollapsibleContent className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <FormField
-              control={form.control}
-              name="cpu_count"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>CPU Count</FormLabel>
-                  <FormControl>
-                    <Input
-                      type="number"
-                      {...field}
-                      onChange={(e) => field.onChange(parseInt(e.target.value))}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="memory"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Memory</FormLabel>
-                  <FormControl>
-                    <Select
-                      onValueChange={field.onChange}
-                      defaultValue={field.value}
-                    >
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Select memory size" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {MEMORY_OPTIONS.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </FormControl>
-                  <FormDescription>
-                    Memory allocation for the deployment
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <FormField
-              control={form.control}
-              name="gpu_count"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>GPU Count</FormLabel>
-                  <FormControl>
-                    <Input
-                      type="number"
-                      {...field}
-                      onChange={(e) => field.onChange(parseInt(e.target.value))}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="gpu_type"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>GPU Type</FormLabel>
-                  <FormControl>
-                    <Select
-                      onValueChange={field.onChange}
-                      defaultValue={field.value}
-                    >
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Select GPU type" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {GPU_TYPE_OPTIONS.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </FormControl>
-                  <FormDescription>
-                    The type of GPU to use for inference
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <FormField
-              control={form.control}
-              name="image_repo"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Image Repository</FormLabel>
-                  <FormControl>
-                    <Input {...field} />
-                  </FormControl>
-                  <FormDescription>
-                    Container image repository (e.g., vlim/vlim-openai)
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="image_tag"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Image Tag</FormLabel>
-                  <FormControl>
-                    <Input {...field} />
-                  </FormControl>
-                  <FormDescription>
-                    Container image tag (e.g., latest)
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <FormField
-              control={form.control}
-              name="dtype"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Data Type</FormLabel>
-                  <FormControl>
-                    <Select
-                      onValueChange={field.onChange}
-                      defaultValue={field.value}
-                    >
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Select data type" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {DTYPE_OPTIONS.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </FormControl>
-                  <FormDescription>
-                    Precision format for model weights
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="tensor_parallel_size"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Tensor Parallel Size</FormLabel>
-                  <FormControl>
-                    <Input
-                      type="number"
-                      {...field}
-                      onChange={(e) => field.onChange(parseInt(e.target.value))}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          </div>
-
-          <FormField
-            control={form.control}
-            name="environment"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Environment</FormLabel>
-                <FormControl>
-                  <Select
-                    onValueChange={field.onChange}
-                    defaultValue={field.value}
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Select environment" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {ENVIRONMENT_OPTIONS.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </FormControl>
-                <FormDescription>
-                  Deployment environment for the model
-                </FormDescription>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <FormField
-            control={form.control}
-            name="enable_chunked_prefill"
-            render={({ field }) => (
-              <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                <div className="space-y-0.5">
-                  <FormLabel className="text-base">
-                    Enable Chunked Prefill
-                  </FormLabel>
-                </div>
-                <FormControl>
-                  <Switch
-                    checked={field.value}
-                    onCheckedChange={field.onChange}
-                  />
-                </FormControl>
-              </FormItem>
-            )}
-          />
-
-            </CollapsibleContent>
-          </Collapsible>
-
-          <Button type="submit" disabled={isSubmitting}>
-            {isSubmitting ? "Creating..." : "Create Deployment"}
-          </Button>
-        </form>
-      </Form>
+              <div className="flex justify-end pt-6 border-t border-gray-700/50">
+                <Button 
+                  type="submit" 
+                  disabled={isSubmitting}
+                  className="bg-blue-600 hover:bg-blue-700 flex items-center justify-center"
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  {isSubmitting ? "Creating..." : "Create Deployment"}
+                </Button>
+              </div>
+            </form>
+          </Form>
+        </div>
+      </div>
     </div>
   );
 }

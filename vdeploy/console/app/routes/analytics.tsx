@@ -12,6 +12,15 @@ import {
   Legend,
   ResponsiveContainer,
 } from "recharts";
+import {
+  BarChart3,
+  Clock,
+  Zap,
+  Timer,
+  MessageSquare,
+  Activity,
+  RefreshCw,
+} from "lucide-react";
 
 export default function Analytics() {
   // State for selected deployment
@@ -587,7 +596,11 @@ export default function Analytics() {
     return (
       <div className="p-6 max-w-6xl mx-auto text-white min-h-screen">
         <h1 className="text-2xl font-bold text-white mb-6">Analytics</h1>
-        <div className="text-center py-12 bg-gray-800 rounded-lg border border-gray-700">
+        <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700/50 shadow-xl">
+          <div className="flex items-center space-x-2 mb-4">
+            <BarChart3 className="w-5 h-5 text-green-400" />
+            <h4 className="text-lg font-semibold text-white">Deployment Cost</h4>
+          </div>
           <h3 className="text-lg font-medium mb-2 text-white">
             No deployments found
           </h3>
@@ -603,52 +616,87 @@ export default function Analytics() {
   }
 
   return (
-    <div className="p-6 max-w-6xl mx-auto text-white min-h-screen">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold text-white">Analytics</h1>
+    <div className="min-h-screen bg-gray-900">
+      {/* Hero Section */}
+      <div className="relative bg-gradient-to-br from-gray-800 via-gray-900 to-black">
+        <div className="absolute inset-0 bg-grid-pattern opacity-5"></div>
+        <div className="relative p-6 max-w-6xl mx-auto">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center space-x-4">
+              <div className="w-12 h-12 bg-gradient-to-br from-blue-600 to-blue-700 rounded-lg flex items-center justify-center shadow-lg">
+                <BarChart3 className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h1 className="text-3xl font-bold text-white">Analytics</h1>
+                <p className="text-gray-400">Monitor performance metrics for your deployments</p>
+              </div>
+            </div>
+            
+            {/* Deployment and Time Range Selectors */}
+            <div className="flex items-center space-x-4">
+              {/* Deployment Selector */}
+              <div className="flex items-center space-x-2">
+                <span className="text-sm text-gray-400">Deployment:</span>
+                <select
+                  value={selectedDeploymentId}
+                  onChange={(e) => setSelectedDeploymentId(e.target.value)}
+                  className="bg-gray-800/50 border border-gray-700 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2 min-w-48"
+                >
+                  <option value="">Select a deployment</option>
+                  {deployments.map((deployment) => {
+                    const deploymentId = deployment.deployment_id || deployment.id;
+                    return (
+                      <option key={deploymentId} value={deploymentId}>
+                        {deployment.name} ({deployment.model})
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
 
-        {/* Deployment and Time Range Selectors */}
-        <div className="flex items-center space-x-4">
-          {/* Deployment Selector */}
-          <div className="flex items-center space-x-2">
-            <span className="text-sm text-gray-400">Deployment:</span>
-            <select
-              value={selectedDeploymentId}
-              onChange={(e) => setSelectedDeploymentId(e.target.value)}
-              className="bg-gray-800 border border-gray-700 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2 min-w-48"
-            >
-              <option value="">Select a deployment</option>
-              {deployments.map((deployment) => {
-                const deploymentId = deployment.deployment_id || deployment.id;
-                return (
-                  <option key={deploymentId} value={deploymentId}>
-                    {deployment.name} ({deployment.model})
-                  </option>
-                );
-              })}
-            </select>
-          </div>
-
-          {/* Time Range Selector */}
-          <div className="flex items-center space-x-2">
-            <span className="text-sm text-gray-400">Time range:</span>
-            <select
-              value={timeInterval}
-              onChange={(e) => setTimeInterval(Number(e.target.value))}
-              className="bg-gray-800 border border-gray-700 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2"
-            >
-              {timeIntervalOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
+              {/* Time Range Selector */}
+              <div className="flex items-center space-x-2">
+                <span className="text-sm text-gray-400">Time range:</span>
+                <select
+                  value={timeInterval}
+                  onChange={(e) => setTimeInterval(Number(e.target.value))}
+                  className="bg-gray-800/50 border border-gray-700 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2"
+                >
+                  {timeIntervalOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              
+              <Button
+                onClick={() => {
+                  // Refresh all metrics
+                  if (selectedDeployment) {
+                    // This will trigger all the useCloudMetrics hooks to refetch
+                    setSelectedDeploymentId(selectedDeploymentId);
+                  }
+                }}
+                variant="outline"
+                className="bg-gray-800/50 border-gray-600 hover:bg-gray-700 text-white"
+              >
+                <RefreshCw className="w-4 h-4" />
+                <span className="ml-2">Refresh</span>
+              </Button>
+            </div>
           </div>
         </div>
       </div>
+      
+      {/* Content Section */}
+      <div className="p-6 max-w-6xl mx-auto">
 
       {!selectedDeployment ? (
-        <div className="text-center py-12 bg-gray-800 rounded-lg border border-gray-700">
+        <div className="text-center py-12 bg-gray-800/50 backdrop-blur-sm rounded-xl border border-gray-700/50">
+          <div className="w-16 h-16 bg-gray-700/50 rounded-lg flex items-center justify-center mx-auto mb-4">
+            <BarChart3 className="w-8 h-8 text-gray-400" />
+          </div>
           <h3 className="text-lg font-medium mb-2 text-white">
             Select a deployment
           </h3>
@@ -659,8 +707,11 @@ export default function Analytics() {
       ) : (
         <div className="space-y-8">
           {/* Token Usage Chart */}
-          <div className="bg-gray-900 rounded-lg p-4 border border-gray-700">
-            <h4 className="text-md font-medium mb-2">Token Usage</h4>
+          <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700/50 shadow-xl">
+            <div className="flex items-center space-x-2 mb-4">
+              <Activity className="w-5 h-5 text-blue-400" />
+              <h4 className="text-lg font-semibold text-white">Token Usage</h4>
+            </div>
             {isLoadingTokenMetrics ? (
               <div className="flex justify-center items-center h-64">
                 <p className="text-gray-400">Loading token usage data...</p>
@@ -727,8 +778,11 @@ export default function Analytics() {
           </div>
 
           {/* Token Throughput Chart */}
-          <div className="bg-gray-900 rounded-lg p-4 border border-gray-700">
-            <h4 className="text-md font-medium mb-2">Token Throughput</h4>
+          <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700/50 shadow-xl">
+            <div className="flex items-center space-x-2 mb-4">
+              <Zap className="w-5 h-5 text-green-400" />
+              <h4 className="text-lg font-semibold text-white">Token Throughput</h4>
+            </div>
             {isLoadingTokenThroughputMetrics ? (
               <div className="flex justify-center items-center h-64">
                 <p className="text-gray-400">
@@ -787,8 +841,11 @@ export default function Analytics() {
           </div>
 
           {/* E2E Latency Chart */}
-          <div className="bg-gray-900 rounded-lg p-4 border border-gray-700">
-            <h4 className="text-md font-medium mb-2">End-to-End Latency</h4>
+          <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700/50 shadow-xl">
+            <div className="flex items-center space-x-2 mb-4">
+              <Timer className="w-5 h-5 text-blue-400" />
+              <h4 className="text-lg font-semibold text-white">End-to-End Latency</h4>
+            </div>
             {isLoadingLatencyMetricsCloud ? (
               <div className="flex justify-center items-center h-64">
                 <p className="text-gray-400">Loading latency data...</p>
@@ -857,8 +914,11 @@ export default function Analytics() {
           </div>
 
           {/* Time to First Token Chart */}
-          <div className="bg-gray-900 rounded-lg p-4 border border-gray-700">
-            <h4 className="text-md font-medium mb-2">Time to First Token</h4>
+          <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700/50 shadow-xl">
+            <div className="flex items-center space-x-2 mb-4">
+              <Clock className="w-5 h-5 text-purple-400" />
+              <h4 className="text-lg font-semibold text-white">Time to First Token</h4>
+            </div>
             {isLoadingTimeToFirstTokenMetrics ? (
               <div className="flex justify-center items-center h-64">
                 <p className="text-gray-400">
@@ -916,8 +976,11 @@ export default function Analytics() {
           </div>
 
           {/* Request Metrics Chart */}
-          <div className="bg-gray-900 rounded-lg p-4 border border-gray-700">
-            <h4 className="text-md font-medium mb-2">Request Metrics</h4>
+          <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700/50 shadow-xl">
+            <div className="flex items-center space-x-2 mb-4">
+              <MessageSquare className="w-5 h-5 text-orange-400" />
+              <h4 className="text-lg font-semibold text-white">Request Metrics</h4>
+            </div>
             {isLoadingRequestMetrics ? (
               <div className="flex justify-center items-center h-64">
                 <p className="text-gray-400">Loading request metrics data...</p>
@@ -999,8 +1062,11 @@ export default function Analytics() {
           </div>
 
           {/* GPU Metrics Chart */}
-          <div className="bg-gray-900 rounded-lg p-4 border border-gray-700">
-            <h4 className="text-md font-medium mb-2">GPU Metrics</h4>
+          <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700/50 shadow-xl">
+            <div className="flex items-center space-x-2 mb-4">
+              <Zap className="w-5 h-5 text-yellow-400" />
+              <h4 className="text-lg font-semibold text-white">GPU Metrics</h4>
+            </div>
             {isLoadingGpuMetrics ? (
               <div className="flex justify-center items-center h-64">
                 <p className="text-gray-400">Loading GPU metrics data...</p>
@@ -1085,6 +1151,7 @@ export default function Analytics() {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }

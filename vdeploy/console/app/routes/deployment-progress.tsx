@@ -2,7 +2,16 @@ import * as React from "react";
 import { useParams, useNavigate } from "react-router";
 import { Button } from "../components/ui/button";
 import { useDeployment, useRefreshDeploymentStatus } from "../lib/api";
-import { CheckCircle, Circle, Clock, AlertCircle } from "lucide-react";
+import { 
+  CheckCircle2, 
+  Circle, 
+  Clock, 
+  AlertCircle, 
+  ArrowLeft,
+  Server,
+  RefreshCw,
+  BarChart3
+} from "lucide-react";
 
 // Define the deployment stages and their descriptions
 const DEPLOYMENT_STAGES = [
@@ -74,7 +83,7 @@ export default function DeploymentProgress() {
   } = useDeployment(id);
   
   // Use mutation for refreshing status
-  const { mutate: refreshStatus } = useRefreshDeploymentStatus();
+  const { mutate: refreshStatus, isPending: isRefreshing } = useRefreshDeploymentStatus();
   
   // Update current stage based on deployment status
   React.useEffect(() => {
@@ -127,9 +136,6 @@ export default function DeploymentProgress() {
     return () => clearInterval(timer);
   }, [id, refreshInterval, refreshStatus]);
   
-  // No automatic redirection - user must click the button to view details
-  // We've removed the automatic redirection that was previously here
-  
   function handleViewDetails() {
     // Use deployment_id (or id as fallback) as the path
     const deploymentId = deployment?.deployment_id || id;
@@ -144,39 +150,108 @@ export default function DeploymentProgress() {
     }
   }
   
+  function handleManualRefresh() {
+    if (id) {
+      refreshStatus(id as string);
+      refetch();
+    }
+  }
+  
+  const currentStageIndex = DEPLOYMENT_STAGES.findIndex(stage => stage.id === currentStage);
+  const isFailed = deployment?.status?.toLowerCase().includes('fail') || 
+                  deployment?.status?.toLowerCase().includes('error');
+  
   if (isLoading) {
     return (
-      <div className="flex flex-col items-center justify-center h-96">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mb-4"></div>
-        <p className="text-lg">Loading deployment information...</p>
+      <div className="min-h-screen bg-gray-900 flex flex-col items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mb-4"></div>
+          <p className="text-white">Loading deployment information...</p>
+        </div>
       </div>
     );
   }
   
   if (deploymentError || error) {
-    const errorMessage = error || (deploymentError instanceof Error ? deploymentError.message : 'Unknown error');
+    const errorMessage = error || 
+      (deploymentError instanceof Error ? deploymentError.message : 'Unknown error');
     
     return (
-      <div className="flex flex-col items-center justify-center h-96">
-        <AlertCircle className="h-12 w-12 text-destructive mb-4" />
-        <h2 className="text-xl font-bold mb-2">Error Loading Deployment</h2>
-        <div className="text-muted-foreground mb-4 max-w-md text-center">
-          <p className="mb-2">{errorMessage}</p>
-          
-          {/* Show more detailed troubleshooting information */}
-          <div className="mt-4 text-sm bg-gray-800 p-4 rounded-md text-left">
-            <p className="font-semibold mb-2">Troubleshooting steps:</p>
-            <ul className="list-disc pl-5 space-y-1">
-              <li>Check if the Kubernetes cluster is accessible</li>
-              <li>Verify that the deployment exists in the specified namespace</li>
-              <li>Check if the deployment pods are running correctly</li>
-              <li>Examine the deployment logs for any errors</li>
-            </ul>
+      <div className="min-h-screen bg-gray-900">
+        <div className="relative bg-gradient-to-br from-gray-800 via-gray-900 to-black">
+          <div className="absolute inset-0 bg-grid-pattern opacity-5"></div>
+          <div className="relative p-6 max-w-6xl mx-auto">
+            <div className="flex items-center mb-6">
+              <Button 
+                variant="ghost" 
+                className="mr-4 text-gray-400 hover:text-white" 
+                onClick={() => navigate("/deployments")}
+              >
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                Back
+              </Button>
+              <div className="flex items-center space-x-4">
+                <div className="w-12 h-12 bg-gradient-to-br from-red-600 to-red-700 rounded-lg flex items-center justify-center shadow-lg">
+                  <AlertCircle className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <h1 className="text-3xl font-bold text-white">Deployment Error</h1>
+                  <p className="text-gray-400">There was a problem with your deployment</p>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={handleRetry}>Retry</Button>
-          <Button onClick={handleViewDetails}>View Deployment Details</Button>
+        
+        <div className="p-6 max-w-6xl mx-auto">
+          <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-red-700/50 shadow-xl">
+            <div className="flex items-start space-x-4">
+              <AlertCircle className="w-8 h-8 text-red-500 mt-1 flex-shrink-0" />
+              <div>
+                <h2 className="text-xl font-semibold text-white mb-2">Error Loading Deployment</h2>
+                <p className="text-gray-300 mb-4">{errorMessage}</p>
+                
+                <div className="bg-gray-900/50 p-4 rounded-lg border border-gray-700/50 mb-6">
+                  <h3 className="text-white font-medium mb-2">Troubleshooting Steps:</h3>
+                  <ul className="text-gray-300 space-y-2">
+                    <li className="flex items-start">
+                      <span className="w-1.5 h-1.5 rounded-full bg-gray-400 mt-2 mr-2"></span>
+                      <span>Check if the Kubernetes cluster is accessible</span>
+                    </li>
+                    <li className="flex items-start">
+                      <span className="w-1.5 h-1.5 rounded-full bg-gray-400 mt-2 mr-2"></span>
+                      <span>Verify that the deployment exists in the specified namespace</span>
+                    </li>
+                    <li className="flex items-start">
+                      <span className="w-1.5 h-1.5 rounded-full bg-gray-400 mt-2 mr-2"></span>
+                      <span>Check if the deployment pods are running correctly</span>
+                    </li>
+                    <li className="flex items-start">
+                      <span className="w-1.5 h-1.5 rounded-full bg-gray-400 mt-2 mr-2"></span>
+                      <span>Examine the deployment logs for any errors</span>
+                    </li>
+                  </ul>
+                </div>
+                
+                <div className="flex space-x-3">
+                  <Button
+                    variant="outline"
+                    onClick={handleRetry}
+                    className="bg-gray-800/50 border-gray-600 hover:bg-gray-700 text-white"
+                  >
+                    <RefreshCw className="w-4 h-4 mr-2" />
+                    Retry Deployment
+                  </Button>
+                  <Button 
+                    className="bg-blue-600 hover:bg-blue-700"
+                    onClick={handleViewDetails}
+                  >
+                    View Deployment Details
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -184,110 +259,216 @@ export default function DeploymentProgress() {
   
   if (!deployment) {
     return (
-      <div className="flex flex-col items-center justify-center h-96">
-        <AlertCircle className="h-12 w-12 text-destructive mb-4" />
-        <h2 className="text-xl font-bold mb-2">Deployment Not Found</h2>
-        <p className="text-muted-foreground mb-4">
-          The deployment you're looking for could not be found.
-        </p>
-        <Button onClick={() => navigate("/deployments")}>Back to Deployments</Button>
+      <div className="min-h-screen bg-gray-900">
+        <div className="relative bg-gradient-to-br from-gray-800 via-gray-900 to-black">
+          <div className="absolute inset-0 bg-grid-pattern opacity-5"></div>
+          <div className="relative p-6 max-w-6xl mx-auto">
+            <div className="flex items-center mb-6">
+              <Button 
+                variant="ghost" 
+                className="mr-4 text-gray-400 hover:text-white" 
+                onClick={() => navigate("/deployments")}
+              >
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                Back
+              </Button>
+              <div className="flex items-center space-x-4">
+                <div className="w-12 h-12 bg-gradient-to-br from-gray-600 to-gray-700 rounded-lg flex items-center justify-center shadow-lg">
+                  <Server className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <h1 className="text-3xl font-bold text-white">Deployment Not Found</h1>
+                  <p className="text-gray-400">The requested deployment could not be located</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <div className="p-6 max-w-6xl mx-auto">
+          <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-8 border border-gray-700/50 text-center">
+            <div className="w-16 h-16 bg-gray-700/50 rounded-lg flex items-center justify-center mx-auto mb-4">
+              <Server className="w-8 h-8 text-gray-400" />
+            </div>
+            <h2 className="text-xl font-medium mb-2 text-white">No Deployment Found</h2>
+            <p className="text-gray-400 mb-6">
+              The deployment you're looking for could not be found.
+            </p>
+            <Button 
+              onClick={() => navigate("/deployments")}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              Back to Deployments
+            </Button>
+          </div>
+        </div>
       </div>
     );
   }
   
-  const currentStageIndex = DEPLOYMENT_STAGES.findIndex(stage => stage.id === currentStage);
-  // More robust failure detection that matches the mapStatusToStage function
-  const isFailed = deployment.status?.toLowerCase().includes('fail') || 
-                  deployment.status?.toLowerCase().includes('error');
-  
   return (
-    <div className="max-w-3xl mx-auto py-8">
-      <h1 className="text-2xl font-bold mb-2">Deployment Progress</h1>
-      <p className="text-muted-foreground mb-8">
-        Tracking progress for deployment: <span className="font-medium">{deployment.release_name}</span>
-      </p>
-      
-      {isFailed && (
-        <div className="bg-destructive/10 border border-destructive rounded-lg p-4 mb-8">
-          <div className="flex items-start">
-            <AlertCircle className="h-5 w-5 text-destructive mt-0.5 mr-2" />
-            <div>
-              <h3 className="font-medium">Deployment Failed</h3>
-              <p className="text-sm text-muted-foreground">
-                There was an error deploying your model. Please check the logs for more details.
-              </p>
+    <div className="min-h-screen bg-gray-900">
+      {/* Hero Section */}
+      <div className="relative bg-gradient-to-br from-gray-800 via-gray-900 to-black">
+        <div className="absolute inset-0 bg-grid-pattern opacity-5"></div>
+        <div className="relative p-6 max-w-6xl mx-auto">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center space-x-4">
               <Button 
-                variant="outline" 
-                size="sm" 
-                className="mt-2"
-                onClick={handleViewDetails}
+                variant="ghost" 
+                className="mr-2 text-gray-400 hover:text-white" 
+                onClick={() => navigate("/deployments")}
               >
-                View Logs
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                Back
+              </Button>
+              <div className="w-12 h-12 bg-gradient-to-br from-blue-600 to-blue-700 rounded-lg flex items-center justify-center shadow-lg">
+                <BarChart3 className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h1 className="text-3xl font-bold text-white">Deployment Progress</h1>
+                <p className="text-gray-400">
+                  {deployment.name || deployment.release_name || "Deployment"} • {deployment.model || "Model"}
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <Button
+                variant="outline"
+                onClick={handleManualRefresh}
+                disabled={isRefreshing}
+                className="bg-gray-800/50 border-gray-600 hover:bg-gray-700 text-white"
+              >
+                <RefreshCw 
+                  className={`w-4 h-4 mr-2 ${isRefreshing ? "animate-spin" : ""}`} 
+                />
+                Refresh Status
+              </Button>
+              <Button 
+                onClick={handleViewDetails}
+                className="bg-blue-600 hover:bg-blue-700"
+              >
+                View Details
               </Button>
             </div>
           </div>
         </div>
-      )}
-      
-      <div className="space-y-6">
-        {DEPLOYMENT_STAGES.map((stage, index) => {
-          let status: "complete" | "current" | "upcoming" | "failed" = "upcoming";
-          
-          if (index < currentStageIndex) {
-            status = "complete";
-          } else if (index === currentStageIndex) {
-            status = isFailed ? "failed" : "current";
-          }
-          
-          return (
-            <div 
-              key={stage.id}
-              className={`flex items-start ${
-                status === "upcoming" ? "opacity-50" : ""
-              }`}
-            >
-              <div className="mr-4 mt-1">
-                {status === "complete" && (
-                  <CheckCircle className="h-6 w-6 text-green-500" />
-                )}
-                {status === "current" && (
-                  <Clock className={`h-6 w-6 text-primary animate-pulse`} />
-                )}
-                {status === "failed" && (
-                  <AlertCircle className="h-6 w-6 text-destructive" />
-                )}
-                {status === "upcoming" && (
-                  <Circle className="h-6 w-6 text-muted-foreground" />
-                )}
-              </div>
-              <div className="flex-1">
-                <div className="flex items-center">
-                  <h3 className="font-medium">{stage.label}</h3>
-                  {status === "current" && !isFailed && (
-                    <span className="ml-2 text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">
-                      In Progress
-                    </span>
-                  )}
+      </div>
+
+      {/* Content Section */}
+      <div className="p-6 max-w-6xl mx-auto">
+        {/* Main Content Card */}
+        <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700/50 shadow-xl">
+          {isFailed && (
+            <div className="bg-red-900/20 border border-red-500/30 rounded-lg p-4 mb-6">
+              <div className="flex items-start">
+                <AlertCircle className="h-5 w-5 text-red-400 mt-0.5 mr-3 flex-shrink-0" />
+                <div>
+                  <h3 className="font-medium text-white">Deployment Failed</h3>
+                  <p className="text-sm text-gray-300 mt-1">
+                    There was an error deploying your model. Please check the logs for more details.
+                  </p>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="mt-3 bg-red-900/30 border-red-500/30 hover:bg-red-800/50 text-white"
+                    onClick={handleViewDetails}
+                  >
+                    View Logs
+                  </Button>
                 </div>
-                <p className="text-sm text-muted-foreground">{stage.description}</p>
-                {index < DEPLOYMENT_STAGES.length - 1 && (
-                  <div className="h-6 border-l border-dashed border-muted ml-3 mt-1"></div>
-                )}
               </div>
             </div>
-          );
-        })}
-      </div>
-      
-      <div className="mt-12 flex justify-end space-x-4">
-        {isFailed && (
-          <Button variant="outline" onClick={handleRetry}>
-            Retry
-          </Button>
-        )}
-        <Button onClick={handleViewDetails}>
-          {currentStage === "running" ? "View Deployment" : "View Details"}
-        </Button>
+          )}
+          
+          <div className="space-y-8 px-4">
+            {DEPLOYMENT_STAGES.map((stage, index) => {
+              let status: "complete" | "current" | "upcoming" | "failed" = "upcoming";
+              
+              if (index < currentStageIndex) {
+                status = "complete";
+              } else if (index === currentStageIndex) {
+                status = isFailed ? "failed" : "current";
+              }
+              
+              return (
+                <div 
+                  key={stage.id}
+                  className={`flex items-start ${
+                    status === "upcoming" ? "opacity-50" : ""
+                  }`}
+                >
+                  <div className="mr-4 mt-1 flex-shrink-0">
+                    {status === "complete" && (
+                      <div className="w-8 h-8 bg-green-600/30 rounded-full flex items-center justify-center">
+                        <CheckCircle2 className="h-5 w-5 text-green-400" />
+                      </div>
+                    )}
+                    {status === "current" && (
+                      <div className="w-8 h-8 bg-blue-600/30 rounded-full flex items-center justify-center animate-pulse">
+                        <Clock className="h-5 w-5 text-blue-400" />
+                      </div>
+                    )}
+                    {status === "failed" && (
+                      <div className="w-8 h-8 bg-red-600/30 rounded-full flex items-center justify-center">
+                        <AlertCircle className="h-5 w-5 text-red-400" />
+                      </div>
+                    )}
+                    {status === "upcoming" && (
+                      <div className="w-8 h-8 bg-gray-600/30 rounded-full flex items-center justify-center">
+                        <Circle className="h-5 w-5 text-gray-400" />
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex items-center">
+                      <h3 className={`font-medium ${status === "current" ? "text-blue-300" : 
+                        status === "complete" ? "text-white" : 
+                        status === "failed" ? "text-red-300" : 
+                        "text-gray-400"}`}
+                      >
+                        {stage.label}
+                      </h3>
+                      {status === "current" && !isFailed && (
+                        <span className="ml-2 text-xs bg-blue-600/20 text-blue-300 px-2 py-0.5 rounded-full">
+                          In Progress
+                        </span>
+                      )}
+                      {status === "complete" && (
+                        <span className="ml-2 text-xs bg-green-600/20 text-green-300 px-2 py-0.5 rounded-full">
+                          Completed
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm text-gray-400 mt-1">{stage.description}</p>
+                    {index < DEPLOYMENT_STAGES.length - 1 && (
+                      <div className="h-8 border-l border-dashed border-gray-600 ml-3 mt-2"></div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          
+          <div className="mt-8 pt-6 border-t border-gray-700/30 flex justify-end space-x-4">
+            {isFailed && (
+              <Button 
+                variant="outline"
+                onClick={handleRetry}
+                className="bg-gray-800/50 border-gray-600 hover:bg-gray-700 text-white"
+              >
+                <RefreshCw className="w-4 h-4 mr-2" />
+                Retry Deployment
+              </Button>
+            )}
+            <Button 
+              onClick={handleViewDetails}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              {currentStage === "running" ? "View Deployment" : "View Details"}
+            </Button>
+          </div>
+        </div>
       </div>
     </div>
   );

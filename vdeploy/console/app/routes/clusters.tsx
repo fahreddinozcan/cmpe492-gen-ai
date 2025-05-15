@@ -10,14 +10,21 @@ import {
   TableHeader,
   TableRow,
 } from "../components/ui/table";
-import { PlusCircle, RefreshCw, ExternalLink, Trash2 } from "lucide-react";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "../components/ui/card";
+import { 
+  PlusCircle, 
+  RefreshCw, 
+  ExternalLink, 
+  Trash2, 
+  Cpu,
+  Server,
+  CheckCircle2,
+  Clock,
+  AlertCircle,
+  ArrowRight,
+  Filter,
+  AlertTriangle,
+  Plus
+} from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -25,10 +32,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../components/ui/select";
-import { Badge, Skeleton } from "../components/ui";
-import { useToast } from "../components/ui/use-toast";
 import { clusterApiClient } from "../lib/cluster-api";
 import type { ClusterStatus } from "../lib/cluster-api";
+import { useToast } from "../components/ui/use-toast";
 
 // Define the cluster interface
 interface Cluster {
@@ -64,27 +70,45 @@ function useClusters(projectId?: string) {
 // Function to format timestamps
 function formatDate(dateString?: string) {
   if (!dateString) return "N/A";
-  return new Date(dateString).toLocaleString();
+  const date = new Date(dateString);
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
 }
 
-// Function to determine badge color based on status
-function getStatusBadge(status: string) {
+// Function to determine status icon and color based on status
+function StatusIcon({ status }: { status: string }) {
+  if (status === "RUNNING") {
+    return <CheckCircle2 className="w-4 h-4 text-green-400" />;
+  } else if (status === "CREATING" || status === "PENDING") {
+    return <Clock className="w-4 h-4 text-yellow-400" />;
+  } else if (status === "DELETING") {
+    return <AlertTriangle className="w-4 h-4 text-orange-400" />;
+  } else if (status === "ERROR") {
+    return <AlertCircle className="w-4 h-4 text-red-400" />;
+  }
+  return <AlertCircle className="w-4 h-4 text-gray-400" />;
+}
+
+// Get status color for badges and background
+const getStatusColor = (status: string) => {
   switch (status) {
     case "RUNNING":
-      return <Badge className="bg-green-500">Running</Badge>;
+      return "text-green-400 bg-green-900/20 border-green-500/30";
     case "CREATING":
     case "PENDING":
-      return <Badge className="bg-blue-500">Creating</Badge>;
+      return "text-yellow-400 bg-yellow-900/20 border-yellow-500/30";
     case "DELETING":
-      return <Badge className="bg-orange-500">Deleting</Badge>;
+      return "text-orange-400 bg-orange-900/20 border-orange-500/30";
     case "ERROR":
-      return <Badge className="bg-red-500">Error</Badge>;
-    case "NOT_FOUND":
-      return <Badge variant="outline">Not Found</Badge>;
+      return "text-red-400 bg-red-900/20 border-red-500/30";
     default:
-      return <Badge variant="secondary">{status}</Badge>;
+      return "text-gray-400 bg-gray-900/20 border-gray-500/30";
   }
-}
+};
 
 export default function Clusters() {
   const navigate = useNavigate();
@@ -146,166 +170,256 @@ export default function Clusters() {
   };
 
   return (
-    <div className="container py-8">
-      <div className="mb-8 flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold">Clusters</h1>
-          <p className="text-muted-foreground">
-            Manage your GKE clusters for model deployments
-          </p>
-        </div>
-        <div className="flex space-x-3 items-center">
-          <Button variant="outline" size="sm" onClick={() => refetch()}>
-            <RefreshCw className="h-3 w-3 mr-2" />
-            Refresh
-          </Button>
-          <Button onClick={() => navigate("/clusters/new")}>
-            <PlusCircle className="h-4 w-4 mr-2" />
-            Create Cluster
-          </Button>
-        </div>
-      </div>
-
-      {/* Project selector */}
-      <div className="mb-4">
-        <div className="flex items-center space-x-4">
-          <div className="w-64">
-            <Select
-              value={selectedProjectId || "all"}
-              onValueChange={(value) =>
-                setSelectedProjectId(value === "all" ? undefined : value)
-              }
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Filter by project" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Projects</SelectItem>
-                {/* Only show existing projects from clusters data */}
-                {[...new Set(clusters.map((cluster) => cluster.project_id))]
-                  .filter(Boolean)
-                  .map((projectId) => (
-                    <SelectItem key={projectId} value={projectId}>
-                      {projectId}
-                    </SelectItem>
-                  ))}
-              </SelectContent>
-            </Select>
-          </div>
-          {selectedProjectId && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setSelectedProjectId(undefined)}
-            >
-              Clear Filter
-            </Button>
-          )}
-        </div>
-      </div>
-
-      {error && (
-        <Card className="mb-6 border-red-200">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-red-500">Error</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p>{error instanceof Error ? error.message : String(error)}</p>
-          </CardContent>
-        </Card>
-      )}
-
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle>All Clusters</CardTitle>
-          <CardDescription>
-            GKE clusters available for vLLM deployments
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {isLoading ? (
-            <div className="space-y-2">
-              <Skeleton className="h-12 w-full" />
-              <Skeleton className="h-12 w-full" />
-              <Skeleton className="h-12 w-full" />
+    <div className="min-h-screen bg-gray-900">
+      {/* Hero Section */}
+      <div className="relative bg-gradient-to-br from-gray-800 via-gray-900 to-black">
+        <div className="absolute inset-0 bg-grid-pattern opacity-5"></div>
+        <div className="relative p-6 max-w-6xl mx-auto">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center space-x-4">
+              <div className="w-12 h-12 bg-gradient-to-br from-green-600 to-green-700 rounded-lg flex items-center justify-center shadow-lg">
+                <Cpu className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h1 className="text-3xl font-bold text-white">Clusters</h1>
+                <p className="text-gray-400">Manage your GKE clusters for model deployments</p>
+              </div>
             </div>
-          ) : clusters.length === 0 ? (
-            <div className="text-center py-8">
-              <p className="text-gray-500">No clusters found</p>
+            <div className="flex gap-3">
               <Button
-                variant="link"
-                onClick={() => navigate("/clusters/new")}
-                className="mt-2"
+                variant="outline"
+                onClick={() => refetch()}
+                className="bg-gray-800/50 border-gray-600 hover:bg-gray-700 text-white"
               >
-                Create your first cluster
+                <RefreshCw
+                  className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`}
+                />
+                <span className="ml-2">Refresh</span>
+              </Button>
+              <Button asChild className="bg-blue-600 hover:bg-blue-700">
+                <span onClick={() => navigate("/clusters/new")}>
+                  <Plus className="w-4 h-4 mr-2" />
+                  New Cluster
+                </span>
               </Button>
             </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Cluster Name</TableHead>
-                  <TableHead>Project ID</TableHead>
-                  <TableHead>Zone</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>GPU Type</TableHead>
-                  <TableHead>GPU Count</TableHead>
-                  <TableHead>Created</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {clusters.map((cluster) => (
-                  <TableRow key={cluster.cluster_id}>
-                    <TableCell className="font-medium">
-                      <Button
-                        variant="link"
-                        className="p-0 h-auto"
-                        onClick={() =>
-                          navigate(`/clusters/${cluster.cluster_id}`)
-                        }
-                      >
+          </div>
+        </div>
+      </div>
+
+      {/* Content Section */}
+      <div className="p-6 max-w-6xl mx-auto">
+        {/* Project Filter */}
+        <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700/50 mb-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-4">
+              <div className="flex items-center">
+                <Filter className="w-5 h-5 mr-2 text-gray-400" />
+                <span className="text-white font-medium">Filter Clusters</span>
+              </div>
+              <div className="w-64">
+                <Select
+                  value={selectedProjectId || "all"}
+                  onValueChange={(value) =>
+                    setSelectedProjectId(value === "all" ? undefined : value)
+                  }
+                >
+                  <SelectTrigger className="bg-gray-900/50 border-gray-700 text-white">
+                    <SelectValue placeholder="Filter by project" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-gray-800 border-gray-700 text-white">
+                    <SelectItem value="all">All Projects</SelectItem>
+                    {/* Only show existing projects from clusters data */}
+                    {[...new Set(clusters.map((cluster) => cluster.project_id))]
+                      .filter(Boolean)
+                      .map((projectId) => (
+                        <SelectItem key={projectId} value={projectId}>
+                          {projectId}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            {selectedProjectId && (
+              <Button
+                variant="ghost"
+                onClick={() => setSelectedProjectId(undefined)}
+                className="text-gray-400 hover:text-white hover:bg-gray-700/50"
+              >
+                Clear Filter
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {/* Error Message */}
+        {error && (
+          <div className="bg-red-900/20 border border-red-500/30 text-red-200 px-6 py-4 rounded-xl backdrop-blur-sm mb-6">
+            <div className="flex items-center">
+              <AlertCircle className="w-6 h-6 mr-3" />
+              <div className="flex-1">
+                <p className="font-semibold">Error Loading Clusters</p>
+                <p className="text-sm text-red-200/80 mt-1">
+                  {error instanceof Error ? error.message : String(error)}
+                </p>
+              </div>
+              <Button
+                onClick={() => refetch()}
+                className="bg-red-600 hover:bg-red-700 text-white border-red-600"
+              >
+                <RefreshCw className="w-4 h-4 mr-2" />
+                Try Again
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Clusters Display */}
+        {isLoading ? (
+          <div className="flex flex-col items-center justify-center min-h-[300px] bg-gray-800/50 backdrop-blur-sm rounded-xl border border-gray-700/50">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mb-4"></div>
+              <p className="text-white">Loading clusters...</p>
+            </div>
+          </div>
+        ) : clusters.length === 0 ? (
+          <div className="text-center py-12 bg-gray-800/50 backdrop-blur-sm rounded-xl border border-gray-700/50">
+            <div className="w-16 h-16 bg-gray-700/50 rounded-lg flex items-center justify-center mx-auto mb-4">
+              <Server className="w-8 h-8 text-gray-400" />
+            </div>
+            <h3 className="text-lg font-medium mb-2 text-white">
+              No clusters found
+            </h3>
+            <p className="text-gray-400 mb-6">
+              Create a new cluster to get started with deployments.
+            </p>
+            <Button asChild className="bg-blue-600 hover:bg-blue-700">
+              <span onClick={() => navigate("/clusters/new")}>
+                <Plus className="w-4 h-4 mr-2" />
+                Create Cluster
+              </span>
+            </Button>
+          </div>
+        ) : (
+          <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl border border-gray-700/50 overflow-hidden">
+            <div className="p-6 border-b border-gray-700/50">
+              <h2 className="text-xl font-semibold text-white">All Clusters</h2>
+              <p className="text-gray-400 text-sm mt-1">
+                GKE clusters available for vLLM deployments
+              </p>
+            </div>
+            <div className="overflow-x-auto">
+              <Table className="w-full">
+                <TableHeader>
+                  <TableRow className="border-gray-700/50 bg-gray-800/50">
+                    <TableHead className="text-gray-300">Cluster Name</TableHead>
+                    <TableHead className="text-gray-300">Project ID</TableHead>
+                    <TableHead className="text-gray-300">Zone</TableHead>
+                    <TableHead className="text-gray-300">Status</TableHead>
+                    <TableHead className="text-gray-300">GPU Type</TableHead>
+                    <TableHead className="text-gray-300">GPU Count</TableHead>
+                    <TableHead className="text-gray-300">Created</TableHead>
+                    <TableHead className="text-right text-gray-300">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {clusters.map((cluster) => (
+                    <TableRow 
+                      key={cluster.cluster_id} 
+                      className="border-gray-700/50 hover:bg-gray-700/30 cursor-pointer"
+                      onClick={() => navigate(`/clusters/${cluster.cluster_id}`)}
+                    >
+                      <TableCell className="font-medium text-white">
                         {cluster.cluster_name}
-                      </Button>
-                    </TableCell>
-                    <TableCell>{cluster.project_id}</TableCell>
-                    <TableCell>{cluster.zone}</TableCell>
-                    <TableCell>{getStatusBadge(cluster.status)}</TableCell>
-                    <TableCell>{cluster.gpu_type || "N/A"}</TableCell>
-                    <TableCell>{cluster.gpu_node_count || "N/A"}</TableCell>
-                    <TableCell>{formatDate(cluster.created_at)}</TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end space-x-2">
-                        {cluster.status === "RUNNING" && (
+                      </TableCell>
+                      <TableCell className="text-gray-300">{cluster.project_id}</TableCell>
+                      <TableCell className="text-gray-300">{cluster.zone}</TableCell>
+                      <TableCell>
+                        <div className={`flex items-center space-x-2 px-3 py-1.5 rounded-lg border ${getStatusColor(cluster.status)}`}>
+                          <StatusIcon status={cluster.status} />
+                          <span className="text-sm font-medium">{cluster.status}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-gray-300">{cluster.gpu_type || "N/A"}</TableCell>
+                      <TableCell className="text-gray-300">{cluster.gpu_node_count || "N/A"}</TableCell>
+                      <TableCell className="text-gray-300">{formatDate(cluster.created_at)}</TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end space-x-2" onClick={(e) => e.stopPropagation()}>
                           <Button
                             variant="ghost"
                             size="icon"
-                            onClick={() =>
-                              navigate(`/clusters/${cluster.cluster_id}`)
-                            }
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigate(`/clusters/${cluster.cluster_id}`);
+                            }}
+                            className="text-blue-400 hover:text-blue-300 hover:bg-gray-700/50"
                             title="View Details"
                           >
                             <ExternalLink className="h-4 w-4" />
                           </Button>
-                        )}
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => deleteCluster(cluster)}
-                          disabled={cluster.status === "DELETING"}
-                          title="Delete Cluster"
-                        >
-                          <Trash2 className="h-4 w-4 text-red-500" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              deleteCluster(cluster);
+                            }}
+                            disabled={cluster.status === "DELETING"}
+                            className="text-red-400 hover:text-red-300 hover:bg-gray-700/50 disabled:opacity-50"
+                            title="Delete Cluster"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        )}
+
+        {/* Quick Actions */}
+        <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700/50 hover:shadow-lg transition-shadow group cursor-pointer"
+            onClick={() => navigate("/deployments/new")}>
+            <div className="flex items-center justify-between mb-4">
+              <div className="w-12 h-12 bg-blue-600/20 rounded-lg flex items-center justify-center">
+                <Server className="w-6 h-6 text-blue-400" />
+              </div>
+              <ArrowRight className="w-5 h-5 text-blue-400 transform group-hover:translate-x-1 transition-transform" />
+            </div>
+            <h3 className="text-lg font-semibold text-white mb-2">New Deployment</h3>
+            <p className="text-gray-400 text-sm">Deploy a model on your cluster</p>
+          </div>
+          
+          <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700/50 hover:shadow-lg transition-shadow group cursor-pointer"
+            onClick={() => navigate("/clusters/new")}>
+            <div className="flex items-center justify-between mb-4">
+              <div className="w-12 h-12 bg-green-600/20 rounded-lg flex items-center justify-center">
+                <Cpu className="w-6 h-6 text-green-400" />
+              </div>
+              <ArrowRight className="w-5 h-5 text-green-400 transform group-hover:translate-x-1 transition-transform" />
+            </div>
+            <h3 className="text-lg font-semibold text-white mb-2">New Cluster</h3>
+            <p className="text-gray-400 text-sm">Configure a new GKE cluster</p>
+          </div>
+          
+          <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700/50 hover:shadow-lg transition-shadow group cursor-pointer"
+            onClick={() => navigate("/dashboard")}>
+            <div className="flex items-center justify-between mb-4">
+              <div className="w-12 h-12 bg-purple-600/20 rounded-lg flex items-center justify-center">
+                <Server className="w-6 h-6 text-purple-400" />
+              </div>
+              <ArrowRight className="w-5 h-5 text-purple-400 transform group-hover:translate-x-1 transition-transform" />
+            </div>
+            <h3 className="text-lg font-semibold text-white mb-2">Dashboard</h3>
+            <p className="text-gray-400 text-sm">View system overview and metrics</p>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
