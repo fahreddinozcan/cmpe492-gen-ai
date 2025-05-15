@@ -2,6 +2,8 @@
 
 A comprehensive platform for deploying, managing, and monitoring LLM inference services on Kubernetes clusters.
 
+> **Documentation:** [Setup Instructions](instructions.md) | [Platform Specification](spec.md)
+
 ## Project Overview
 
 vDeploy is a platform designed to simplify the deployment and management of Large Language Models (LLMs) on Kubernetes clusters. It provides a user-friendly interface for creating and managing clusters, deploying models, monitoring performance metrics, and interacting with deployed models.
