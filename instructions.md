@@ -2,6 +2,8 @@
 
 vDeploy is a platform for deploying, managing, and monitoring LLM inference services on Kubernetes clusters.
 
+![vDeploy](screenshots/1.png)
+
 ## Prerequisites
 
 - [Google Cloud SDK](https://cloud.google.com/sdk/docs/install)
