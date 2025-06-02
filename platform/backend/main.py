@@ -581,7 +581,7 @@ async def initialize_deployments():
                                         "cpu_count": status.get("cpu_count", 2),
                                         "memory": status.get("memory", "8Gi"),
                                         "image": status.get(
-                                            "image", "vllm/vllm-openai:latest"
+                                            "image", "vllm/vllm-openai:v0.8.3"
                                         ),
                                     }
 
@@ -1780,7 +1780,7 @@ async def get_deployment(deployment_id: str):
         gpu_count=deployment.get("gpu_count", 0),
         cpu_count=deployment.get("cpu_count", 0),
         memory=deployment.get("memory", ""),
-        image=f"{deployment.get('image_repo', 'vllm/vllm-openai')}:{deployment.get('image_tag', 'latest')}",
+        image=f"{deployment.get('image_repo', 'vllm/vllm-openai')}:{deployment.get('image_tag', 'v0.8.3')}",
         service_url=enhanced_status.get("service_url", ""),
         ready=ready,
         health_status=health_status,
@@ -2026,7 +2026,7 @@ async def get_deployment_by_name(namespace: str, name: str):
             "gpu_count": status.get("gpu_count", 1),
             "cpu_count": status.get("cpu_count", 2),
             "memory": status.get("memory", "8Gi"),
-            "image": status.get("image", "vllm/vllm-openai:latest"),
+            "image": status.get("image", "vllm/vllm-openai:v0.8.3"),
         }
 
         # Return the deployment using the existing get_deployment endpoint

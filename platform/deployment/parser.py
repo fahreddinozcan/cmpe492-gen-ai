@@ -80,7 +80,9 @@ def _add_deploy_args(parser):
 
     # Image configuration
     parser.add_argument(
-        "-i", "--image-tag", default="latest", help="Image tag (default: latest)"
+        "-i", "--image-tag",
+        default="v0.8.3",
+        help="Image tag (default: v0.8.3)",
     )
     parser.add_argument(
         "--image-repo",
